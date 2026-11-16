@@ -66,9 +66,16 @@ const route = useRoute()
 // 首页画布与独立的 AI 对话页都按整屏无内边距渲染，且不显示底部导航与悬浮助手。
 const isHome = computed(() => route.path === '/' || route.path.startsWith('/agent/'))
 const taskWorkspaceRoutes = new Set(['tasks-inbox', 'tasks-today', 'tasks-tomorrow', 'tasks-next7', 'tasks-board', 'tasks-timeline', 'tasks-filter', 'tasks-shortcut', 'tasks-all', 'tasks-completed', 'tasks-abandoned', 'tasks-trash', 'tasks-list', 'tasks-group', 'tasks-tag', 'tasks-search'])
-const routerViewKey = computed(() => route.path.startsWith('/tools')
-  ? '/tools'
-  : taskWorkspaceRoutes.has(route.name) ? route.path : route.fullPath)
+// 任务域里切换清单/智能视图时，key 必须保持不变。
+// 之前用 route.path 做 key，点一次侧栏就会把整个工作区（含 36 个清单的侧栏、日历、详情面板）
+// 销毁重建：onMounted 重跑、filters/sidebar-preferences/settings/calendar 五个接口重拉、
+// 上千个节点重新挂载。实测 675 行的视图一次切换有 300~660ms 主线程长任务，
+// 而重复点同一视图（key 不变）时是 0。
+// 看板与时间线也是本组件内的分支（router 重定向到 /tasks/today?workspaceView=...），一并共享。
+const routerViewKey = computed(() => {
+  if (route.path.startsWith('/tools')) return '/tools'
+  return taskWorkspaceRoutes.has(route.name) ? '/tasks/list' : route.fullPath
+})
 const navigationLoading = ref(false)
 let navigationFinishTimer
 let navigationSafetyTimer

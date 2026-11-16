@@ -47,7 +47,7 @@ test('task board and timeline replace the list inside the persistent task worksp
   assert.match(workspaceView, /year: "numeric"/)
   assert.match(workspaceView, /router\.replace\(\{ path: route\.path, query \}\)/)
   assert.match(navigation, /view: 'KANBAN', label: '看板'/)
-  assert.match(appView, /taskWorkspaceRoutes\.has\(route\.name\) \? route\.path : route\.fullPath/)
+  assert.match(appView, /taskWorkspaceRoutes\.has\(route\.name\) \? '\/tasks\/list' : route\.fullPath/)
   assert.match(appView, /if \(to\.path !== from\.path\) startNavigationLoading\(\)/)
 })
 

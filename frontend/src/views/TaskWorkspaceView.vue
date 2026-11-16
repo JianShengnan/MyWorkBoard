@@ -7893,6 +7893,9 @@ watch(
   () => {
     completedLimit.value = 5;
     closeContext();
+    // 工作区不再随路由重建（key 固定为 /tasks/list），所以切视图要自己收尾：
+    // 否则右侧会一直挂着上一个视图打开的任务，侧栏高亮和详情内容对不上。
+    closeDetail();
     if (route.query.task) {
       const task = store.tasks.find(
         (item) => item.publicId === route.query.task,
