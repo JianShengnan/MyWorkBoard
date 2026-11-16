@@ -663,75 +663,52 @@
             /><strong>{{ group.label }}</strong
             ><span>{{ group.visibleCount }}</span>
           </button>
-          <div class="clone-collapse-panel" :class="{ 'is-collapsed': collapsed[group.key] }" :aria-hidden="Boolean(collapsed[group.key])"><TransitionGroup name="clone-sort" tag="div" class="clone-task-rows clone-collapse-inner" :inert="Boolean(collapsed[group.key])">
-            <article
+          <div class="clone-collapse-panel" :class="{ 'is-collapsed': collapsed[group.key] }" :aria-hidden="Boolean(collapsed[group.key])"><component
+            :is="group.rows.length > ROW_TRANSITION_LIMIT ? 'div' : TransitionGroup"
+            name="clone-sort"
+            tag="div"
+            class="clone-task-rows clone-collapse-inner"
+            :inert="Boolean(collapsed[group.key])"
+          >
+            <TaskRow
               v-for="task in group.rows"
               :key="task.publicId"
-              class="clone-task-row"
-              :class="{
-                selected: selectedTask?.publicId === task.publicId,
-                checked: task.status === 'COMPLETED',
-                'is-note': isNoteTask(task),
-                'has-children': task.hasVisibleChildren,
-                multi: selectedIds.has(task.publicId),
-                'print-content': printMode === 'CONTENT',
-                dragging: dragged?.publicId === task.publicId,
-                'drag-over': dragOverTask?.publicId === task.publicId,
-                'drop-before': dragOverTask?.publicId === task.publicId && dragOverPlacement === 'before',
-                'drop-after': dragOverTask?.publicId === task.publicId && dragOverPlacement === 'after',
-              }"
-              :data-depth="task.treeDepth"
-              :data-priority="task.priority"
-              :style="{ '--task-group-color': groupColor(task), '--task-depth': task.treeDepth }"
-              @dragover.prevent.stop="setTaskDragTarget(task, $event)"
-              @drop.prevent.stop="dropTask(task, group.tasks.indexOf(task), group.key)"
-              @dragend="endTaskDrag"
-              @contextmenu.prevent="openContext(task, $event)"
-            >
-              <button v-if="task.hasVisibleChildren" type="button" class="clone-subtask-toggle" :aria-label="`${collapsedSubtaskIds.has(task.publicId) ? '展开' : '收起'}${task.title}的子任务`" :aria-expanded="!collapsedSubtaskIds.has(task.publicId)" @click.stop="toggleSubtaskBranch(task.publicId)"><ChevronDown :size="14" :class="{ rotated: collapsedSubtaskIds.has(task.publicId) }" /></button>
-              <button
-                v-if="!isNoteTask(task)"
-                type="button"
-                class="clone-check"
-                :aria-label="
-                  task.status === 'COMPLETED'
-                    ? `重新打开${task.title}`
-                    : `完成${task.title}`
-                "
-                @click="handleTaskCheckClick(task, $event)"
-              >
-                <Check v-if="task.status === 'COMPLETED'" :size="14" /></button
-              ><button type="button" class="clone-drag-handle" :draggable="!batchMode" :aria-label="`拖动${task.title}`" @click.stop @dragstart.stop="startTaskDrag(task, $event)"><GripVertical :size="15" /></button><button
-                type="button"
-                class="clone-task-content"
-                @click="handleTaskContentClick(task, $event)"
-              >
-                <template v-if="inlineRowTitleTaskId === task.publicId"><input v-model="inlineRowTitleDraft" type="text" maxlength="500" :aria-label="`编辑${task.title}标题`" @click.stop @keydown.enter.prevent="saveInlineRowTitle(task)" @keydown.esc.prevent="cancelInlineRowTitle" @blur="saveInlineRowTitle(task)" /></template><template v-else><span class="clone-print-task-copy"><strong>{{ task.title }}</strong><small v-if="task.description" class="clone-print-description">{{ printDescription(task.description) }}</small></span></template
-                ></button
-              ><div class="clone-task-metadata">
-                <span v-if="showTags && task.tagIds?.length" class="clone-task-tags" :aria-label="taskTagSummary(task)">
-                  <span v-for="tagId in task.tagIds" :key="tagId" class="clone-task-tag-wrap" :style="taskTagStyle(tagId)"><RouterLink :to="`/tasks/tag/${tagId}`" class="clone-task-tag" @click.stop>{{ tagName(tagId) }}</RouterLink><button type="button" class="clone-task-tag-remove" :aria-label="`移除标签${tagName(tagId)}`" @click.stop="removeTaskTag(task, tagId)"><X :size="11" /></button></span>
-                  <span class="clone-task-tag-count" :data-total="task.tagIds.length" :data-h4="Math.max(0, task.tagIds.length - 4)" :data-h2="Math.max(0, task.tagIds.length - 2)" :data-h1="Math.max(0, task.tagIds.length - 1)" :aria-label="taskTagSummary(task)" tabindex="0" @mouseenter="showTagFlyout(task, $event)" @mouseleave="hideTagFlyoutSoon" @focus="showTagFlyout(task, $event)" @blur="hideTagFlyoutSoon"></span>
-                </span>
-                <button v-if="showDescription && task.description" type="button" class="clone-task-indicator clone-task-indicator-action" :title="task.description" :aria-label="`查看${task.title}详细内容`" @click.stop="openTaskIndicator(task, 'description')"><FileText :size="14" /></button>
-                <button v-if="showChecklist && task.checklist?.length" type="button" class="clone-task-indicator clone-task-indicator-action" :title="`检查项 ${task.checklist.filter(item => item.completed).length}/${task.checklist.length}`" :aria-label="`查看${task.title}检查项进度`" @click.stop="openTaskIndicator(task, 'checklist')"><span class="clone-checklist-progress" :style="{ '--check-progress': `${task.checklist.filter(item => item.completed).length / task.checklist.length * 100}%` }"></span><small>{{ task.checklist.filter(item => item.completed).length }}/{{ task.checklist.length }}</small></button>
-                <button v-if="task.totalSubtasks" type="button" class="clone-task-indicator clone-task-indicator-action" :title="`子任务 ${task.completedSubtasks || 0}/${task.totalSubtasks}`" :aria-label="`查看${task.title}子任务`" @click.stop="openTaskIndicator(task, 'subtasks')"><ListTodo :size="14" /><small>{{ task.completedSubtasks || 0 }}/{{ task.totalSubtasks }}</small></button>
-                <button v-if="task.rrule" type="button" class="clone-task-indicator clone-task-indicator-action" :title="recurrenceLabel(task.rrule)" :aria-label="`调整${task.title}重复规则`" @click.stop="openTaskIndicator(task, 'repeat')"><Repeat2 :size="14" /></button>
-                <button v-if="task.focusMinutes" type="button" class="clone-task-indicator clone-task-indicator-action" :title="`累计专注 ${task.focusMinutes} 分钟`" :aria-label="`查看${task.title}专注记录`" @click.stop="openTaskIndicator(task, 'focus')"><Timer :size="14" /></button>
-                <button v-if="task.attachmentCount || task.attachments?.length" type="button" class="clone-task-indicator clone-task-indicator-action" :title="`附件 ${task.attachmentCount || task.attachments.length} 个`" :aria-label="`查看${task.title}附件`" @click.stop="openTaskIndicator(task, 'attachments')"><Paperclip :size="14" /><small>{{ task.attachmentCount || task.attachments.length }}</small></button>
-                <span v-if="isCompletionRoute && taskRangeLabel(task)" class="clone-task-date is-range" :title="`时间段 ${formatDate(task.startAt)} 至 ${formatDate(task.dueAt)}`"><CalendarRange :size="14" />{{ taskRangeLabel(task) }}</span><span v-if="isCompletionRoute && task.completedAt" class="clone-task-date is-completed" :title="`完成于 ${formatDate(task.completedAt)}`"><CalendarCheck :size="14" />{{ completedDateLabel(task) }}</span><button v-else-if="task.dueAt" type="button" class="clone-task-date" :class="{ overdue: isTaskOverdue(task), today: isTaskDueToday(task) }" data-row-date-trigger :title="`调整日期 ${formatDate(task.dueAt)}`" @click.stop="openRowDateEditor(task, $event.currentTarget)"><CalendarClock :size="14" />{{ taskDateLabel(task) }}</button>
-                <button v-if="showListLink" type="button" class="clone-task-list-link" :title="listName(task.listId)" @click.stop="navigateToTaskList(task)"><span class="clone-task-list-dot" :style="{ backgroundColor: taskListColor(task) }"></span>{{ listName(task.listId) }}</button>
-              </div><button
-              v-if="!selectedIds.has(task.publicId)"
-                type="button"
-                class="clone-row-more"
-                :aria-label="`更多操作：${task.title}`"
-                @click.stop="openContext(task, $event)"
-              >
-                <Ellipsis :size="17" />
-              </button>
-            </article>
-          </TransitionGroup></div>
+              :task="task"
+              :group-color="groupColor(task)"
+              :selected="selectedTask?.publicId === task.publicId"
+              :multi="selectedIds.has(task.publicId)"
+              :dragging="dragged?.publicId === task.publicId"
+              :drag-over="dragOverTask?.publicId === task.publicId"
+              :drop-placement="dragOverTask?.publicId === task.publicId ? dragOverPlacement : ''"
+              :subtask-collapsed="collapsedSubtaskIds.has(task.publicId)"
+              :editing-title="inlineRowTitleTaskId === task.publicId"
+              :title-draft="inlineRowTitleDraft"
+              :print-mode="printMode"
+              :batch-mode="batchMode"
+              :show-tags="showTags"
+              :show-description="showDescription"
+              :show-checklist="showChecklist"
+              :show-list-link="showListLink"
+              :completion-route="isCompletionRoute"
+              @check="handleTaskCheckClick(task, $event)"
+              @content="handleTaskContentClick(task, $event)"
+              @context="openContext(task, $event)"
+              @toggle-subtask="toggleSubtaskBranch(task.publicId)"
+              @drag-start="startTaskDrag(task, $event)"
+              @drag-target="setTaskDragTarget(task, $event)"
+              @drop="dropRowTask(task, group.key)"
+              @drag-end="endTaskDrag"
+              @remove-tag="removeTaskTag(task, $event)"
+              @tag-flyout-show="showTagFlyout(task, $event)"
+              @tag-flyout-hide="hideTagFlyoutSoon"
+              @open-indicator="openTaskIndicator(task, $event)"
+              @open-date="openRowDateEditor(task, $event)"
+              @navigate-list="navigateToTaskList(task)"
+              @save-inline-title="saveInlineRowTitle(task)"
+              @cancel-inline-title="cancelInlineRowTitle"
+              @update:title-draft="inlineRowTitleDraft = $event"
+            />
+          </component></div>
         </section>
         <section v-if="todayHabits.length" class="clone-task-group clone-efficiency-group clone-habit-group">
             <button class="clone-group-heading" type="button" :aria-expanded="!collapsed.habits" @click="collapsed.habits = !collapsed.habits">
@@ -1471,8 +1448,10 @@ import {
   nextTick,
   onBeforeUnmount,
   onMounted,
+  provide,
   reactive,
   ref,
+  TransitionGroup,
   watch,
 } from "vue";
 import { useRoute, useRouter, RouterLink } from "vue-router";
@@ -1579,7 +1558,10 @@ import { formatAttachmentSize, uploadQuickAttachments, validateQuickAttachmentFi
 import { quickAddTokenAtCaret, replaceQuickAddToken } from "./taskQuickAddSuggestions.js";
 import { useTasksStore } from "../stores/tasks.js";
 import { dayState, todayKey } from "../components/habits/habitUtils.js";
+// 行内日期标签是热路径：格式化器按 options 缓存，别在每次渲染里重建 Intl 实例
+import { dayLabel, timeLabel } from "../utils/dateFormat.js";
 import HabitDetailPane from "../components/habits/HabitDetailPane.vue";
+import TaskRow from "../components/tasks/TaskRow.vue";
 import SearchFilterSelect from "../components/tasks/SearchFilterSelect.vue";
 import {
   SEARCH_DATE_OPTIONS,
@@ -1597,7 +1579,7 @@ import {
 import { daysUntil, effectiveTarget, parseKey } from "../components/countdowns/countdownUtils.js";
 import { openTaskSearch } from "../utils/searchBus.js";
 import { useSettings } from "../components/settings/useSettings.js";
-import { playCompleteSound } from "../utils/completeSound.js";
+import { playCompleteSound, prewarmCompleteSound } from "../utils/completeSound.js";
 import { taskHitsDay, taskOverlapsKeys, taskRange } from "../utils/taskDates.js";
 import { uuid } from "../utils/uuid.js";
 import { copyText } from "../utils/clipboard.js";
@@ -2800,7 +2782,34 @@ const groups = computed(() => {
   }
   return result;
 });
-const listGroups = computed(() => buildTaskListGroups(groups.value, openTasks.value, collapsedSubtaskIds.value));
+// 行对象在 taskWorkspaceTree 里按 publicId 复用，没改动的行还是同一个对象，
+// TaskRow 的 props 浅比较就能跳过更新。这里再提供一份纯格式化函数给行组件用。
+/**
+ * 行数超过这个量就不走 TransitionGroup。
+ *
+ * TransitionGroup 每次更新要对每个子节点读一次计算样式来计算过渡/move，
+ * 700 多行时就是两千来个元素反复失效重算（实测单次操作样式重算 350ms）。
+ * 长列表里排序动画本来也看不出来，换成普通容器后行为一致、开销归零。
+ */
+const ROW_TRANSITION_LIMIT = 80;
+const taskRowCache = new Map();
+const listGroups = computed(() => buildTaskListGroups(groups.value, openTasks.value, collapsedSubtaskIds.value, taskRowCache));
+provide("taskRowHelpers", {
+  isNoteTask,
+  printDescription,
+  taskTagSummary,
+  taskTagStyle,
+  tagName,
+  taskRangeLabel,
+  completedDateLabel,
+  isTaskOverdue,
+  isTaskDueToday,
+  taskDateLabel,
+  listName,
+  taskListColor,
+  formatDate,
+  recurrenceLabel,
+});
 // 倒数日按「显示」选项生效：当天 / 提前 3 天 / 提前 7 天 / 一直 / 不显示
 const todayCountdowns = computed(() => (route.name === "tasks-today" && !route.query.date
   ? store.countdowns.filter((item) => countdownVisible(item, todayKey()))
@@ -2949,10 +2958,9 @@ function isTaskOverdue(task) {
 }
 function shortDateLabel(value, allDay) {
   const date = new Date(value);
-  const sameYear = date.getFullYear() === new Date().getFullYear();
-  const day = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }).format(date);
+  const day = dayLabel(date);
   if (allDay !== false) return day;
-  return `${day} ${new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(date)}`;
+  return `${day} ${timeLabel(date)}`;
 }
 // 时间段任务：开始与截止不在同一天时显示区间，否则返回空串走单日期逻辑
 function taskRangeLabel(task) {
@@ -2971,17 +2979,15 @@ function taskDateLabel(task) {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   if (date.toDateString() === tomorrow.toDateString()) return "明天";
-  const sameYear = date.getFullYear() === new Date().getFullYear();
-  const label = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }).format(date);
-  return date.getHours() || date.getMinutes() ? `${label} ${new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(date)}` : label;
+  const label = dayLabel(date);
+  return date.getHours() || date.getMinutes() ? `${label} ${timeLabel(date)}` : label;
 }
 function completedDateLabel(task) {
   if (!task.completedAt) return "已完成";
   const date = new Date(task.completedAt);
   if (Number.isNaN(date.getTime())) return "已完成";
-  const sameYear = date.getFullYear() === new Date().getFullYear();
-  const day = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) }).format(date);
-  return date.getHours() || date.getMinutes() ? `${day} ${new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(date)}` : day;
+  const day = dayLabel(date);
+  return date.getHours() || date.getMinutes() ? `${day} ${timeLabel(date)}` : day;
 }
 function navigateToTaskList(task) {
   const list = taskList(task);
@@ -7010,9 +7016,13 @@ async function dropTask(target, index = 0, groupKey = "") {
     endTaskDrag();
   }
 }
+/** 行组件拖放后回传：分组索引在这里算，避免每渲染一行就 indexOf 一次 */
+function dropRowTask(task, groupKey) {
+  const group = listGroups.value.find((item) => item.key === groupKey);
+  return dropTask(task, group ? group.tasks.indexOf(task) : 0, groupKey);
+}
 function endTaskDrag() {
-  dragged.value = null;
-  dragOverTask.value = null;
+  dragged.value = null;  dragOverTask.value = null;
   dragOverPlacement.value = "before";
   dragOverGroupKey.value = "";
 }
@@ -7916,6 +7926,8 @@ watch(
   { deep: true },
 );
 onMounted(() => {
+  // 完成音效的 AudioContext 首次创建要几百毫秒，别等用户点第一次「完成」时才建
+  prewarmCompleteSound();
   loadSidebarVisibility();
   loadSidebarWidth();
   loadSidebarObjectPrefs();

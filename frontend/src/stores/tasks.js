@@ -7,6 +7,7 @@ import { apiListDeletedTaskLists, apiListTaskLists, apiListTaskTags, apiListTask
   apiListCountdownGroups, apiCreateCountdownGroup, apiUpdateCountdownGroup, apiDeleteCountdownGroup } from '../../packages/api-client/src/index.js'
 import { accountScopeFor, taskDatabaseName } from '../utils/accountScope.js'
 import { createClientId } from '../utils/clientId.js'
+import { bumpEntityVersion } from '../utils/entityVersion.js'
 
 const SCOPE = 'tasks'
 const SYNC_IDLE_DELAY_MS = 1200
@@ -24,10 +25,14 @@ const PATCHABLE_COLLECTIONS = {
 /**
  * 任务列表里影响分组/排序/可见性的字段。动了任何一个，就地改字段会让列表停在
  * 错的顺序上，必须走全量重排。
+ *
+ * status 不在此列：`visibleTasks` / `groups` 都是依赖每条任务的 status 的 computed，
+ * 就地改字段会让它们失效并自己重排，没必要把上万条记录从 IndexedDB 重新读一遍。
+ * 之前把 status 放进来，导致每点一次「完成」都要全量 hydrate —— 9600 条的任务库
+ * 实测一次点击主线程要 1 秒以上，这正是详情面板操作发卡的直接原因。
  */
 function taskNeedsRebuild(existing, next) {
   return Boolean(existing.deleted) !== Boolean(next.deleted) ||
-    existing.status !== next.status ||
     Number(existing.sortOrder || 0) !== Number(next.sortOrder || 0) ||
     existing.listId !== next.listId ||
     (existing.parentId || null) !== (next.parentId || null) ||
@@ -329,9 +334,12 @@ export const useTasksStore = defineStore('tasks', {
       }
       for (const pairs of pending) {
         for (const [existing, next] of pairs) {
+          let touched = false
           for (const key of Object.keys(next)) {
-            if (existing[key] !== next[key]) existing[key] = next[key]
+            if (existing[key] !== next[key]) { existing[key] = next[key]; touched = true }
           }
+          // 引用不变，列表行的 v-memo 只能靠版本号知道自己变了
+          if (touched) bumpEntityVersion(existing)
         }
       }
       return true

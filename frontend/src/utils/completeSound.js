@@ -15,7 +15,6 @@ export function playCompleteSound(kind = 'WATER') {
   const ctx = audioContext()
   if (!ctx) return
   if (ctx.state === 'suspended') ctx.resume().catch(() => {})
-
   const now = ctx.currentTime
   const gain = ctx.createGain()
   gain.connect(ctx.destination)
@@ -46,4 +45,18 @@ export function playCompleteSound(kind = 'WATER') {
   osc.connect(gain)
   osc.start(now)
   osc.stop(now + 0.28)
+}
+
+/**
+ * 提前把 AudioContext 建好。
+ *
+ * 首次 `new AudioContext()` 要初始化音频后端，实测 headless Chrome 里要 1 秒左右，
+ * 有音频设备时也要几十毫秒。如果等用户点「完成」时才建，这一下就压在点击反馈上，
+ * 感觉像卡住了。放到空闲时段预热，点击时就只剩一次纯合成。
+ */
+export function prewarmCompleteSound() {
+  const run = () => { try { audioContext() } catch { /* 没有音频能力就算了 */ } }
+  if (typeof window === 'undefined') return
+  if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run, { timeout: 3000 })
+  else window.setTimeout(run, 1500)
 }

@@ -7,6 +7,9 @@ const dataPanel = await readFile(new URL('../components/tasks/TaskDataPanel.vue'
 const dataPane = await readFile(new URL('../components/settings/SettingsDataPanes.vue', import.meta.url), 'utf8')
 const inboxView = await readFile(new URL('./TasksInboxView.vue', import.meta.url), 'utf8')
 const workspaceView = await readFile(new URL('./TaskWorkspaceView.vue', import.meta.url), 'utf8')
+// 任务行已经拆成独立组件（为了把更新粒度压到单行），行内结构要去那边找
+const taskRowSource = await readFile(new URL('../components/tasks/TaskRow.vue', import.meta.url), 'utf8')
+const workspaceRowMarkup = `${workspaceView}\n${taskRowSource}`
 const taskDatePanel = await readFile(new URL('../components/tasks/TaskDatePanel.vue', import.meta.url), 'utf8')
 const taskMarkdownPreview = await readFile(new URL('../components/tasks/TaskMarkdownPreview.vue', import.meta.url), 'utf8')
 const taskMilkdownEditor = await readFile(new URL('../components/tasks/TaskMilkdownEditor.vue', import.meta.url), 'utf8')
@@ -358,14 +361,14 @@ test('task rows expose a viewport-safe context menu with contract actions', () =
 })
 
 test('middle task workspace matches the note-row, date, view, display, and print interactions', () => {
-  assert.match(workspaceView, /isNoteTask\(task\)[\s\S]*?clone-check/)
+  assert.match(workspaceRowMarkup, /isNoteTask\(task\)[\s\S]*?clone-check/)
   assert.match(workspaceView, /function openTaskRow\(task, event\)[\s\S]*openDetail\(task\)[\s\S]*inlineRowTitleTaskId\.value = task\.publicId/)
-  assert.match(workspaceView, /class="clone-drag-handle" :draggable="!batchMode"/)
+  assert.match(workspaceRowMarkup, /class="clone-drag-handle" :draggable="!batchMode"/)
   assert.match(workspaceView, /taskGroupDropPatch\(dragged\.value, groupBy\.value, groupKey\)/)
   // 同组拖动排序在非手动排序下自动切换为手动并落库排序
   assert.match(workspaceView, /if \(sort\.value !== "manual"\) sort\.value = "manual";[\s\S]{0,200}store\.sortTask\(dragged\.value, manualTaskSortIndex/)
   // 标签全量渲染（宽档不再强制只显示 2 个），计数 chip 由行宽容器查询分档驱动
-  assert.match(workspaceView, /v-for="tagId in task\.tagIds"/)
+  assert.match(workspaceRowMarkup, /v-for="tagId in task\.tagIds"/)
   assert.doesNotMatch(workspaceView, /has-overflow/)
   assert.match(workspaceView, /clone-task-metadata \{ display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex: 0 1 auto;/)
   assert.match(workspaceView, /\/\* 行宽即中间栏可用宽度：标签分档收起的容器查询以此为准（对齐滴答按中栏收窄） \*\/\n  container: task-meta \/ inline-size;/)
@@ -397,7 +400,7 @@ test('middle task workspace matches the note-row, date, view, display, and print
 
 test('标签 +N 悬浮展开隐藏标签，行内日期弹层支持时间段与全天', () => {
   // 列表行 +N 计数 chip 与看板 tag-more 悬浮时打开 teleport 浮层（fixed 定位、视口钳制），不超出可视范围
-  assert.match(workspaceView, /clone-task-tag-count"[\s\S]*?tabindex="0" @mouseenter="showTagFlyout\(task, \$event\)" @mouseleave="hideTagFlyoutSoon" @focus="showTagFlyout\(task, \$event\)" @blur="hideTagFlyoutSoon"/)
+  assert.match(workspaceRowMarkup, /clone-task-tag-count"[\s\S]*?tabindex="0" @mouseenter="\$emit\('tag-flyout-show', \$event\)" @mouseleave="\$emit\('tag-flyout-hide'\)" @focus="\$emit\('tag-flyout-show', \$event\)" @blur="\$emit\('tag-flyout-hide'\)"/)
   assert.match(workspaceView, /clone-inline-board-tag-more" tabindex="0" :aria-label="taskTagSummary\(task\)" @mouseenter="showTagFlyout\(task, \$event\)" @mouseleave="hideTagFlyoutSoon" @focus="showTagFlyout\(task, \$event\)" @blur="hideTagFlyoutSoon">/)
   assert.match(workspaceView, /<teleport to="body">[\s\S]*?class="clone-tag-flyout" :style="tagFlyout\.style" @mouseenter="cancelTagFlyoutHide" @mouseleave="hideTagFlyoutSoon"/)
   assert.match(workspaceView, /function positionTagFlyout\(\)[\s\S]*?window\.innerWidth - el\.offsetWidth - 8/)
@@ -765,7 +768,7 @@ test('full task page rebuild exposes persistent list grouping and sorting contro
   assert.match(workspaceView, /查看更多/)
   assert.match(workspaceView, /loadMoreCompletedOnScroll/)
   assert.match(workspaceView, /sortTaskItems\(values, \{ sortBy: sort\.value, direction: sortDirection\.value \}\)/)
-  assert.match(workspaceView, /class="clone-drag-handle" :draggable="!batchMode"/)
+  assert.match(workspaceRowMarkup, /class="clone-drag-handle" :draggable="!batchMode"/)
   assert.match(workspaceView, /sort\.value !== "manual" && !\["list", "tag", "priority", "time"\]/)
 })
 
@@ -826,9 +829,9 @@ test('task row menu exposes contract-backed task operations and accurate metadat
   assert.match(workspaceView, /focusStore\.start\(\{ taskId: task\.publicId \}\)/)
   assert.match(workspaceView, /async function moveContextTask\(list\)/)
   assert.match(workspaceView, /async function toggleContextTag\(tag\)/)
-  assert.match(workspaceView, /task\.focusMinutes/)
+  assert.match(workspaceRowMarkup, /task\.focusMinutes/)
   assert.match(workspaceView, /class="clone-task-metadata"/)
-  assert.match(workspaceView, /task\.totalSubtasks/)
+  assert.match(workspaceRowMarkup, /task\.totalSubtasks/)
   assert.match(workspaceView, /taskDateLabel\(task\)/)
   assert.match(workspaceView, /taskTagSummary\(task\)/)
   assert.match(workspaceView, /\.clone-task-row-menu > button \{ box-sizing: border-box; width: 100%; min-width: 0; min-height: 32px; justify-content: flex-start;/)
@@ -1232,17 +1235,17 @@ test('task detail subtasks can be completed, quickly renamed, dated, and added i
 })
 
 test('task row metadata shortcuts open their matching detail section or popover', () => {
-  assert.match(workspaceView, /查看\$\{task\.title\}详细内容[\s\S]*openTaskIndicator\(task, 'description'\)/)
+  assert.match(workspaceRowMarkup, /查看\$\{task\.title\}详细内容[\s\S]*\$emit\('open-indicator', 'description'\)/)
   // 详细内容指示图标为文本形（FileText），与滴答一致
-  assert.match(workspaceView, /查看\$\{task\.title\}详细内容[\s\S]{0,220}<FileText :size="14" \/>/)
-  assert.match(workspaceView, /查看\$\{task\.title\}检查项进度[\s\S]*openTaskIndicator\(task, 'checklist'\)/)
-  assert.match(workspaceView, /查看\$\{task\.title\}子任务[\s\S]*openTaskIndicator\(task, 'subtasks'\)/)
-  assert.match(workspaceView, /调整\$\{task\.title\}重复规则[\s\S]*openTaskIndicator\(task, 'repeat'\)/)
-  assert.match(workspaceView, /查看\$\{task\.title\}专注记录[\s\S]*openTaskIndicator\(task, 'focus'\)/)
-  assert.match(workspaceView, /查看\$\{task\.title\}附件[\s\S]*openTaskIndicator\(task, 'attachments'\)/)
-  assert.match(workspaceView, /class="clone-detail-focus-summary" aria-label="专注记录"/)
-  assert.match(workspaceView, /async function openTaskIndicator\(task, kind\)[\s\S]*toggleDatePopover\(\);[\s\S]*detailDateMenu\.value = "repeat";[\s\S]*aria-label="专注记录"[\s\S]*scrollIntoView/)
-  assert.match(workspaceView, /v-if="!selectedIds\.has\(task\.publicId\)"[\s\S]*class="clone-row-more"/)
+  assert.match(workspaceRowMarkup, /查看\$\{task\.title\}详细内容[\s\S]{0,220}<FileText :size="14" \/>/)
+  assert.match(workspaceRowMarkup, /查看\$\{task\.title\}检查项进度[\s\S]*\$emit\('open-indicator', 'checklist'\)/)
+  assert.match(workspaceRowMarkup, /查看\$\{task\.title\}子任务[\s\S]*\$emit\('open-indicator', 'subtasks'\)/)
+  assert.match(workspaceRowMarkup, /调整\$\{task\.title\}重复规则[\s\S]*\$emit\('open-indicator', 'repeat'\)/)
+  assert.match(workspaceRowMarkup, /查看\$\{task\.title\}专注记录[\s\S]*\$emit\('open-indicator', 'focus'\)/)
+  assert.match(workspaceRowMarkup, /查看\$\{task\.title\}附件[\s\S]*\$emit\('open-indicator', 'attachments'\)/)
+  assert.match(workspaceRowMarkup, /class="clone-detail-focus-summary" aria-label="专注记录"/)
+  assert.match(workspaceRowMarkup, /async function openTaskIndicator\(task, kind\)[\s\S]*toggleDatePopover\(\);[\s\S]*detailDateMenu\.value = "repeat";[\s\S]*aria-label="专注记录"[\s\S]*scrollIntoView/)
+  assert.match(workspaceRowMarkup, /v-if="!multi"[\s\S]*class="clone-row-more"/)
 })
 
 test('摘要页筛选对齐滴答交互：范围显示、自定义从/到、多选确定取消', async () => {
