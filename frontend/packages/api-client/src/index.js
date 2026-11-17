@@ -378,3 +378,9 @@ export const apiDeleteQuitSmokingCraving = async (id, currentRevision) =>
   data(await api.delete(`/api/v1/tools/quit-smoking/cravings/${id}`,
     { headers: { 'If-Match': revision(currentRevision) } }))
 export const apiGetQuitSmokingSummary = async () => data(await api.get('/api/v1/tools/quit-smoking/summary'))
+// 工具参数（房贷 / 个税）：每用户一份 JSON，用于换设备后回填上次填表内容
+export const apiGetToolPreference = async tool =>
+  data(await api.get(`/api/v1/tools/${encodeURIComponent(tool)}/preference`))
+export const apiPutToolPreference = async (tool, payload, currentRevision) =>
+  data(await api.put(`/api/v1/tools/${encodeURIComponent(tool)}/preference`, payload,
+    { headers: { 'If-Match': revision(currentRevision) } }))

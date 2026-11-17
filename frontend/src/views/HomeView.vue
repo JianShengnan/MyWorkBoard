@@ -57,6 +57,10 @@ import HomeBudgetWidget from '../components/home/HomeBudgetWidget.vue'
 import HomeCategoryWidget from '../components/home/HomeCategoryWidget.vue'
 import HomeWorktimeWidget from '../components/home/HomeWorktimeWidget.vue'
 import HomeAiWidget from '../components/home/HomeAiWidget.vue'
+import HomeQuitSmokingWidget from '../components/home/HomeQuitSmokingWidget.vue'
+import HomeCountdownWidget from '../components/home/HomeCountdownWidget.vue'
+import HomePaydayWidget from '../components/home/HomePaydayWidget.vue'
+import HomeHolidayWidget from '../components/home/HomeHolidayWidget.vue'
 import {
   defaultLayout, HOME_WIDGETS, layoutStorageKey, moveWidget, normalizeLayout, readLayout,
   toggleWidget, visibleWidgets, widgetSpan, writeLayout
@@ -67,6 +71,7 @@ import { useAppStore } from '../stores/app.js'
 import { useTasksStore } from '../stores/tasks.js'
 import { useLedgerStore } from '../stores/ledger.js'
 import { useWorktimeStore } from '../stores/worktime.js'
+import { useQuitSmokingStore } from '../stores/quitSmoking.js'
 
 const widgetMap = {
   tasks: HomeTasksWidget,
@@ -76,13 +81,18 @@ const widgetMap = {
   budget: HomeBudgetWidget,
   category: HomeCategoryWidget,
   worktime: HomeWorktimeWidget,
-  ai: HomeAiWidget
+  ai: HomeAiWidget,
+  quit: HomeQuitSmokingWidget,
+  countdown: HomeCountdownWidget,
+  payday: HomePaydayWidget,
+  holiday: HomeHolidayWidget
 }
 
 const store = useAppStore()
 const tasksStore = useTasksStore()
 const ledgerStore = useLedgerStore()
 const worktimeStore = useWorktimeStore()
+const quitSmokingStore = useQuitSmokingStore()
 
 const editing = ref(false)
 const layout = ref(readLayout(layoutStorageKey(store.accountScope)))
@@ -193,6 +203,11 @@ onMounted(async () => {
   if (!Object.keys(worktimeStore.records).length) {
     try { await worktimeStore.fetch() } catch { /* 工时接口失败时显示 0 */ }
   }
+  // 戒烟卡片要展示今日支数与补录状态，首次进首页时按需拉一次
+  const showQuit = visibleLayout.value.some(widget => widget.key === 'quit')
+  if (showQuit && !quitSmokingStore.loaded) {
+    try { await quitSmokingStore.fetchAll() } catch { /* 接口失败时卡片显示未配置态 */ }
+  }
 })
 </script>
 
@@ -221,6 +236,9 @@ onMounted(async () => {
 .home-cell.hw-key-tasks, .home-cell.hw-key-calendar, .home-cell.hw-key-ledger { height: 500px; }
 .home-cell.hw-key-cashflow, .home-cell.hw-key-budget, .home-cell.hw-key-category { height: 330px; }
 .home-cell.hw-key-worktime, .home-cell.hw-key-ai { height: 360px; }
+/* 四张紧凑卡（戒烟/倒数日/发薪日/节假日）单独一排，高度按内容最小需求锁定 */
+.home-cell.hw-key-quit, .home-cell.hw-key-countdown,
+.home-cell.hw-key-payday, .home-cell.hw-key-holiday { height: 300px; }
 .home-cell.span-3 { grid-column: span 3; }
 .home-cell.span-4 { grid-column: span 4; }
 .home-cell.span-5 { grid-column: span 5; }
@@ -245,7 +263,8 @@ onMounted(async () => {
   .home-canvas { padding: 18px 14px 32px; }
   .home-cell.hw-key-tasks, .home-cell.hw-key-calendar, .home-cell.hw-key-ledger,
   .home-cell.hw-key-cashflow, .home-cell.hw-key-budget, .home-cell.hw-key-category,
-  .home-cell.hw-key-worktime, .home-cell.hw-key-ai { height: auto; min-height: 0; }
+  .home-cell.hw-key-worktime, .home-cell.hw-key-ai, .home-cell.hw-key-quit,
+  .home-cell.hw-key-countdown, .home-cell.hw-key-payday, .home-cell.hw-key-holiday { height: auto; min-height: 0; }
   .home-head { align-items: flex-start; flex-direction: column; gap: 10px; }
   .home-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .home-cell.span-8, .home-cell.span-5, .home-cell.span-4, .home-cell.span-3 { grid-column: span 1; }

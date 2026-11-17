@@ -33,6 +33,7 @@
 
       <p class="tool-hint">专项附加扣除常见额度：子女教育 2000/孩、3 岁以下照护 2000/孩、房贷利息 1000、住房租金 1500、赡养老人 3000（独生）。仅作提示，请按实际申报填写。</p>
       <p v-if="result.error" class="tool-error" role="alert">{{ result.error }}</p>
+      <p class="tool-hint">{{ preferenceLabel(preference.status.value) }}</p>
     </section>
 
     <section v-if="result.withholding" class="tool-card">
@@ -101,6 +102,7 @@ import { computed, ref } from 'vue'
 import {
   TAX_POLICY_REVIEW, compareBonus, monthlyWithholding, socialInsuranceEstimate
 } from './tax.js'
+import { preferenceLabel, useToolPreference } from './useToolPreference.js'
 
 const monthlyIncome = ref(30_000)
 const specialAdditional = ref(3_000)
@@ -111,6 +113,29 @@ const salaryBase = ref(30_000)
 const socialManual = ref(5_000)
 const bonus = ref(60_000)
 const policyReview = TAX_POLICY_REVIEW
+
+/** 上次填的参数按账号存库：换设备/清缓存后不用重填收入与扣除项 */
+const preference = useToolPreference('tax', {
+  read: () => ({
+    monthlyIncome: monthlyIncome.value,
+    specialAdditional: specialAdditional.value,
+    otherMonthly: otherMonthly.value,
+    months: months.value,
+    socialMode: socialMode.value,
+    salaryBase: salaryBase.value,
+    socialManual: socialManual.value,
+    bonus: bonus.value
+  }),
+  apply: payload => {
+    if (!payload || typeof payload !== 'object') return
+    const numbers = { monthlyIncome, specialAdditional, otherMonthly, months, salaryBase, socialManual, bonus }
+    for (const [key, target] of Object.entries(numbers)) {
+      const value = Number(payload[key])
+      if (Number.isFinite(value)) target.value = value
+    }
+    if (payload.socialMode === 'manual' || payload.socialMode === 'estimate') socialMode.value = payload.socialMode
+  }
+})
 
 const social = computed(() => {
   if (socialMode.value === 'manual') return Math.max(0, Number(socialManual.value) || 0)

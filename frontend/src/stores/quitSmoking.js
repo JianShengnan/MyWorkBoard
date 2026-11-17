@@ -149,6 +149,47 @@ export const useQuitSmokingStore = defineStore('quitSmoking', {
       }
     },
 
+    /**
+     * 任意日期补录（首页卡片用）。
+     *
+     * 服务端本来就支持按日期写入（`PUT /days/{date}` 允许过去日期），缺的只是入口。
+     * 今天仍走 `setTodaySmoked` 的乐观路径；历史日期直接写库再拉一次 summary，
+     * 因为「连续天数 / 累计少抽」这类汇总口径在服务端，本地推算容易和隔天的记录打架。
+     */
+    async setDaySmoked(date, nextCount) {
+      const target = Math.max(0, Math.min(200, Math.round(Number(nextCount) || 0)))
+      const day = String(date || '').trim()
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        message.error('请选择有效日期')
+        return null
+      }
+      if (day === this.todayDate) return this.setTodaySmoked(target)
+
+      const previousDays = this.days
+      const previousSummary = this.summary
+      const current = this.days[day]
+      this.days = {
+        ...this.days,
+        [day]: { ...(current || {}), date: day, smokedCount: target, revision: current?.revision || 0 }
+      }
+      try {
+        const saved = await apiPutQuitSmokingDay(day, { smokedCount: target, note: current?.note || '' }, current?.revision || 0)
+        this.days = { ...this.days, [day]: saved }
+        this.summary = await apiGetQuitSmokingSummary()
+        return saved
+      } catch (error) {
+        this.days = previousDays
+        this.summary = previousSummary
+        if (error?.problem?.code === 'REVISION_CONFLICT') {
+          message.warning('这一天已在别处更新，已为你刷新')
+          await this.fetchAll()
+        } else {
+          message.error(errorText(error, '补录失败'))
+        }
+        return null
+      }
+    },
+
     async addCraving({ intensity = 3, resisted = true, trigger = '', note = '', occurredAt = null } = {}) {
       const tempId = `temp-${uuid()}`
       const optimistic = {

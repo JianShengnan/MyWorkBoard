@@ -39,6 +39,7 @@
       </template>
 
       <p v-if="result.error" class="tool-error" role="alert">{{ result.error }}</p>
+      <p class="tool-hint">{{ preferenceLabel(preference.status.value) }}</p>
     </section>
 
     <section v-if="result.plan" class="tool-card">
@@ -134,6 +135,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { METHOD, STRATEGY, amortize, amortizeCombined, prepaymentPlan } from './mortgage.js'
+import { preferenceLabel, useToolPreference } from './useToolPreference.js'
 
 const mode = ref('single')
 const single = reactive({ principal: 1_000_000, annualRatePct: 4.2, years: 30, method: METHOD.EQUAL_INSTALLMENT })
@@ -144,6 +146,29 @@ const combo = reactive({
 const prepayEnabled = ref(false)
 const prepay = reactive({ paidMonths: 60, amount: 200_000 })
 const showAll = ref(false)
+
+/** 上次填的参数按账号存库，换设备/清缓存后打开还是这套数 */
+const preference = useToolPreference('mortgage', {
+  read: () => ({ mode: mode.value, single: { ...single }, combo: { ...combo }, prepayEnabled: prepayEnabled.value, prepay: { ...prepay } }),
+  apply: payload => {
+    if (!payload || typeof payload !== 'object') return
+    if (payload.mode === 'combined' || payload.mode === 'single') mode.value = payload.mode
+    assignNumbers(single, payload.single, ['principal', 'annualRatePct', 'years'])
+    assignNumbers(combo, payload.combo, ['commercialPrincipal', 'commercialRate', 'commercialYears', 'fundPrincipal', 'fundRate', 'fundYears'])
+    assignNumbers(prepay, payload.prepay, ['paidMonths', 'amount'])
+    if (payload.single?.method) single.method = payload.single.method
+    if (typeof payload.prepayEnabled === 'boolean') prepayEnabled.value = payload.prepayEnabled
+  }
+})
+
+/** 只回填数字字段，避免旧数据里的脏值把下拉/枚举写坏 */
+function assignNumbers(target, source, keys) {
+  if (!source || typeof source !== 'object') return
+  for (const key of keys) {
+    const value = Number(source[key])
+    if (Number.isFinite(value)) target[key] = value
+  }
+}
 
 const result = computed(() => {
   try {

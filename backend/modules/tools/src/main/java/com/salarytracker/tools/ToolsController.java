@@ -1,5 +1,6 @@
 package com.salarytracker.tools;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.salarytracker.platform.ApiResponse;
 import com.salarytracker.tools.ToolsModels.DeletedResource;
 import com.salarytracker.tools.ToolsModels.QuitSmokingCraving;
@@ -10,6 +11,7 @@ import com.salarytracker.tools.ToolsModels.QuitSmokingDayUpdate;
 import com.salarytracker.tools.ToolsModels.QuitSmokingSettings;
 import com.salarytracker.tools.ToolsModels.QuitSmokingSettingsUpdate;
 import com.salarytracker.tools.ToolsModels.QuitSmokingSummary;
+import com.salarytracker.tools.ToolsModels.ToolPreference;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
@@ -32,9 +34,25 @@ import java.util.List;
 @Tag(name = "Tools")
 public class ToolsController {
     private final QuitSmokingService quitSmoking;
+    private final ToolPreferenceService preferences;
 
-    public ToolsController(QuitSmokingService quitSmoking) {
+    public ToolsController(QuitSmokingService quitSmoking, ToolPreferenceService preferences) {
         this.quitSmoking = quitSmoking;
+        this.preferences = preferences;
+    }
+
+    @GetMapping("/{tool}/preference") @PreAuthorize("hasAuthority('tools:read')")
+    @Operation(operationId = "getToolPreference")
+    public ApiResponse<ToolPreference> toolPreference(@PathVariable("tool") String tool) {
+        return ApiResponse.ok(preferences.read(tool));
+    }
+
+    @PutMapping(value = "/{tool}/preference", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('tools:write')") @Operation(operationId = "putToolPreference")
+    public ApiResponse<ToolPreference> putToolPreference(@PathVariable("tool") String tool,
+                                                         @RequestBody JsonNode body,
+                                                         @RequestHeader(value = "If-Match", required = false) String ifMatch) {
+        return ApiResponse.ok(preferences.write(tool, body, ifMatch));
     }
 
     @GetMapping("/quit-smoking/settings") @PreAuthorize("hasAuthority('tools:read')")

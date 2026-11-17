@@ -15,7 +15,12 @@ export const HOME_WIDGETS = [
   { key: 'budget', title: '预算执行', span: 3 },
   { key: 'category', title: '支出分类', span: 4 },
   { key: 'worktime', title: '工时与加班', span: 8 },
-  { key: 'ai', title: 'AI 助手', span: 4 }
+  { key: 'ai', title: 'AI 助手', span: 4 },
+  // 下面四张固定 span 3，默认排成完整一行（4 × 3 = 12 栏）
+  { key: 'quit', title: '戒烟', span: 3 },
+  { key: 'countdown', title: '倒数纪念日', span: 3 },
+  { key: 'payday', title: '发薪日', span: 3 },
+  { key: 'holiday', title: '下一个节假日', span: 3 }
 ]
 
 export const HOME_WIDGET_KEYS = HOME_WIDGETS.map(item => item.key)

@@ -1,5 +1,6 @@
 package com.salarytracker.tools;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
@@ -78,6 +79,11 @@ public final class ToolsModels {
                                      boolean todayLogged, long settingsRevision, long todayRevision,
                                      List<QuitSmokingCraving> todayCravingItems, QuitSmokingSubstance substance,
                                      QuitSmokingRecovery recovery) {
+    }
+
+    /** 工具参数：{@code tool} 为白名单键（mortgage / tax），{@code payload} 原样存前端表单 JSON。 */
+    @Schema(name = "ToolsPreference")
+    public record ToolPreference(String tool, JsonNode payload, long revision) {
     }
 
     @Schema(name = "ToolsDeletedResource")
