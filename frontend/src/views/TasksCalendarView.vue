@@ -2,7 +2,7 @@
   <section ref="shellEl" class="cal-shell" :class="{ 'is-collapsed': collapsed, 'is-task-route': isTaskRoute }" @click="closeMenus">
     <CalendarSidebar
       :week-start="weekStart"
-      v-if="!collapsed"
+      v-if="!collapsed && !mobile"
       :anchor="anchor"
       :today="today"
       :selected="selectedDay"
@@ -23,7 +23,7 @@
         <div class="cal-head-left">
           <button
             type="button"
-            class="cal-icon-btn"
+            class="cal-icon-btn cal-sidebar-toggle"
             :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
             :title="collapsed ? '展开侧边栏' : '收起侧边栏'"
             @click.stop="toggleSidebar"
@@ -33,8 +33,20 @@
           <span class="cal-title"><CalendarDays :size="15" aria-hidden="true" />{{ range.title }}</span>
         </div>
         <div class="cal-head-right">
-          <button type="button" class="cal-icon-btn" aria-label="新增任务" title="新增任务" @click.stop="openQuickAdd()"><Plus :size="17" /></button>
-          <div class="cal-menu-wrap">
+          <button
+            v-if="mobile"
+            type="button"
+            class="cal-icon-btn cal-filter-btn"
+            :aria-label="filterButtonLabel"
+            :title="filterButtonLabel"
+            :aria-expanded="filterOpen"
+            @click.stop="openFilterDrawer"
+          >
+            <SlidersHorizontal :size="17" />
+            <b v-if="filterBadge" class="cal-filter-badge" aria-hidden="true">{{ filterBadge }}</b>
+          </button>
+          <button type="button" class="cal-icon-btn cal-add-btn" aria-label="新增任务" title="新增任务" @click.stop="openQuickAdd()"><Plus :size="17" /></button>
+          <div class="cal-menu-wrap cal-view-wrap">
             <button type="button" class="cal-text-btn" :aria-expanded="viewMenu" @click.stop="toggleViewMenu">
               {{ viewLabelText }}<ChevronDown :size="13" aria-hidden="true" />
             </button>
@@ -78,7 +90,7 @@
             <button type="button" class="cal-nav-today" @click.stop="navigate('today')">今天</button>
             <button type="button" aria-label="下一段" title="下一段" @click.stop="navigate('next')"><ChevronRight :size="15" /></button>
           </div>
-          <div class="cal-menu-wrap">
+          <div class="cal-menu-wrap cal-more-wrap">
             <button type="button" class="cal-icon-btn" aria-label="更多" title="更多" :aria-expanded="moreOpen" @click.stop="moreOpen = !moreOpen"><MoreHorizontal :size="17" /></button>
             <div v-if="moreOpen" class="cal-menu is-more" role="menu" @click.stop>
               <button type="button" role="menuitem" class="cal-menu-row" @click="openSettings"><Settings2 :size="15" /><span class="cal-menu-label">显示设置</span></button>
@@ -179,6 +191,7 @@
 
     <CalendarTaskPanel
       v-if="planPanel.open"
+      :mobile="mobile"
       :tasks="tasksStore.tasks"
       :lists="calendarLists"
       :tags="calendarTags"
@@ -198,6 +211,7 @@
 
     <CalendarEventCard
       v-if="eventCard.open && cardEvent"
+      :mobile="mobile"
       :event="cardEvent"
       :task="cardTask"
       :habit="cardHabit"
@@ -256,6 +270,7 @@
 
     <TaskQuickAdd
       :open="quickAdd.open"
+      :mobile="mobile"
       :style="quickStyle"
       :date-label="quickAddDateLabel"
       :due-at="quickAddDueIso"
@@ -286,6 +301,26 @@
       @close="closeQuickAdd"
     />
 
+    <CalendarFilterDrawer
+      :open="filterOpen"
+      :week-start="weekStart"
+      :anchor="anchor"
+      :today="today"
+      :selected="selectedDay"
+      :lunar="lunarLabels"
+      :holidays="holidayMap"
+      :lists="calendarLists"
+      :tags="calendarTags"
+      :filters="filters"
+      :scope="scope"
+      @close="closeFilterDrawer"
+      @clear="clearFilters"
+      @move-month="moveMonth"
+      @go-today="goToday"
+      @select="jumpToDate"
+      @update:scope="applyScope"
+    />
+
     <CalendarSettingsDialog
       :open="settings.open"
       :lists="calendarLists"
@@ -307,7 +342,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Flag, FolderClosed, ListTodo, MoreHorizontal, PanelLeft, Plus, Printer, Settings2, X } from 'lucide-vue-next'
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Flag, FolderClosed, ListTodo, MoreHorizontal, PanelLeft, Plus, Printer, Settings2, SlidersHorizontal, X } from 'lucide-vue-next'
 import { useSettings } from '../components/settings/useSettings.js'
 import CalendarSidebar from './calendar/CalendarSidebar.vue'
 import CalendarMonthView from './calendar/CalendarMonthView.vue'
@@ -318,6 +353,7 @@ import CalendarYearView from './calendar/CalendarYearView.vue'
 import CalendarAgendaView from './calendar/CalendarAgendaView.vue'
 import CalendarSettingsDialog from './calendar/CalendarSettingsDialog.vue'
 import CalendarTaskPanel from './calendar/CalendarTaskPanel.vue'
+import CalendarFilterDrawer from './calendar/CalendarFilterDrawer.vue'
 import { message } from '../services/message.js'
 import { useExclusivePanels } from '../utils/exclusivePanels.js'
 import { useAppStore } from '../stores/app.js'
@@ -334,6 +370,7 @@ import { minutesToLabel, snapMinutes } from './calendar/calendarTimeGrid.js'
 import { diffDays, fromDateKey } from './calendar/calendarRange.js'
 import { formatDuration, spanToInstants } from './calendar/calendarDrag.js'
 import { mergedColorSettings, tintStyle } from './calendar/calendarColors.js'
+import { countActiveFilters, filterBadgeText, isMobileWidth, reduceFilterDrawer } from './calendar/calendarMobile.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -370,19 +407,11 @@ const viewMenu = ref(false)
 const moreOpen = ref(false)
 const printMenuOpen = ref(false)
 const settings = reactive({ open: false })
+const filterOpen = ref(false)
 const quickAdd = reactive({ open: false, title: '', description: '', priority: 'NONE', listId: '', tagIds: [], checklist: [], saving: false, date: startOfDay(new Date()), allDay: true, startMinutes: null, endMinutes: null, spanEnd: null, reminderMinutes: null, rrule: '' })
 const dayPopover = reactive({ open: false, date: startOfDay(new Date()), x: 0, y: 0 })
 const eventCard = reactive({ open: false, event: null, x: 0, y: 0 })
 const focusStore = useTaskFocusStore()
-
-// 日历页各类浮层互斥：视图菜单、更多菜单、设置、日期浮层、事件卡同时只开一个
-useExclusivePanels('calendar', [
-  ['view', () => viewMenu.value, value => (viewMenu.value = value)],
-  ['more', () => moreOpen.value, value => (moreOpen.value = value)],
-  ['settings', () => settings.open, value => (settings.open = value)],
-  ['day', () => dayPopover.open, value => (dayPopover.open = value)],
-  ['event', () => eventCard.open, value => (eventCard.open = value)]
-])
 
 const TAG_COLORS = ['#4d78db', '#e34d59', '#e69b2d', '#2fa36b', '#8a63d2', '#12a4b5']
 
@@ -399,6 +428,8 @@ const bodyEl = ref(null)
 const widthBucket = value => (value < 768 ? 'phone' : value < 1180 ? 'tablet' : 'wide')
 let currentBucket = typeof window !== 'undefined' ? widthBucket(window.innerWidth) : 'wide'
 const narrow = ref(currentBucket !== 'wide')
+// 手机断点与 CSS 的 @media (max-width:1023px) 严格一致：两行工具栏、筛选抽屉、底部面板都按它切换
+const mobile = ref(typeof window !== 'undefined' ? isMobileWidth(window.innerWidth) : false)
 const collapsedManual = ref(null)
 const cellHeight = ref(120)
 const timePrefs = reactive({ hiddenTop: 420, hiddenBottom: 1380, allDayHeight: 120, allDayCollapsed: false })
@@ -406,6 +437,19 @@ const agendaExtra = reactive({ before: 0, after: 0 })
 const calendarLayers = reactive({ worktime: true, ledger: true, holiday: true, habit: true })
 const planPanel = reactive({ open: false, groupBy: 'list', undated: true, overdue: false, hideNotes: false, hideHierarchy: false })
 const collapsed = computed(() => collapsedManual.value ?? narrow.value)
+
+// 日历页各类浮层互斥：视图菜单、更多菜单、设置、日期浮层、事件卡、安排任务、筛选抽屉同时只开一个。
+// 快速新增不在这组里：它自己在 quickadd 命名空间广播，这里收到外来广播会顺手关掉上面这些，
+// 若把它也放进来，它收到 'calendar:quickadd' 会当成外来浮层把自己关掉。
+useExclusivePanels('calendar', [
+  ['view', () => viewMenu.value, value => (viewMenu.value = value)],
+  ['more', () => moreOpen.value, value => (moreOpen.value = value)],
+  ['settings', () => settings.open, value => (settings.open = value)],
+  ['day', () => dayPopover.open, value => (dayPopover.open = value)],
+  ['event', () => eventCard.open, value => (eventCard.open = value)],
+  ['plan', () => planPanel.open, value => (planPanel.open = value)],
+  ['filters', () => filterOpen.value, value => (filterOpen.value = value)]
+])
 
 const calendarLists = computed(() => tasksStore.lists.filter(item => !item.archived))
 const calendarTags = computed(() => tasksStore.tags)
@@ -450,6 +494,8 @@ const calendarData = computed(() => buildCalendarEvents({
 // 快速添加卡片上的日期浮层写回：改日期/时间就重设落点
 // 卡片 Teleport 到了 body，定位改成按日历面板算的 fixed 坐标
 const quickStyle = computed(() => {
+  // 手机：几何由 TaskQuickAdd 的 .is-mobile 接管（贴底全宽 + 内部滚动），这里只给层级
+  if (mobile.value) return { zIndex: 1300 }
   const width = Math.min(420, window.innerWidth - 32)
   const rect = shellEl.value?.getBoundingClientRect?.()
   const left = rect ? Math.max(12, Math.min(rect.right - 132 - width, window.innerWidth - width - 12)) : 24
@@ -581,7 +627,13 @@ const cardStreak = computed(() => {
   return streak
 })
 
-const cardStyle = computed(() => ({ left: `${eventCard.x}px`, top: `${eventCard.y}px` }))
+// 筛选按钮徽标：清单 + 标签勾选数，过滤器生效时算 1
+const activeFilterCount = computed(() => countActiveFilters(scope.value))
+const filterBadge = computed(() => filterBadgeText(activeFilterCount.value))
+const filterButtonLabel = computed(() => (activeFilterCount.value ? `筛选，已选 ${activeFilterCount.value} 项条件` : '筛选'))
+
+// 手机：卡片几何由 CalendarTaskCard / CalendarEventCard 的 .is-mobile 接管，不再下发浮层坐标
+const cardStyle = computed(() => (mobile.value ? {} : { left: `${eventCard.x}px`, top: `${eventCard.y}px` }))
 
 function closeEventCard() {
   eventCard.open = false
@@ -727,6 +779,19 @@ function readPreferences() {
   } catch { /* 使用默认偏好 */ }
 }
 
+function openFilterDrawer() {
+  filterOpen.value = true
+}
+
+/** source: 'backdrop' | 'escape' | 'done' | 'close'，都统一交给纯函数归约，方便单测 */
+function closeFilterDrawer(source = 'close') {
+  filterOpen.value = reduceFilterDrawer(filterOpen.value, source)
+}
+
+function clearFilters() {
+  applyScope({ mode: 'all', listIds: [], tagIds: [], filterId: '' })
+}
+
 function applyScope(next) {
   scope.value = next
   savePreferences()
@@ -808,6 +873,7 @@ async function loadFilters() {
 
 function measure() {
   if (typeof window === 'undefined') return
+  mobile.value = isMobileWidth(window.innerWidth)
   const bucket = widthBucket(window.innerWidth)
   // 断点变化时清掉手动开关，避免“手机上被强制展开”的遗留状态
   if (bucket !== currentBucket) {
@@ -1206,7 +1272,9 @@ async function updateCountdownColor(item, color) {
 let observer
 function onKeydown(event) {
   if (event.key !== 'Escape') return
-  if (quickAdd.open) closeQuickAdd()
+  if (filterOpen.value) closeFilterDrawer('escape')
+  else if (planPanel.open) planPanel.open = false
+  else if (quickAdd.open) closeQuickAdd()
   else if (eventCard.open) closeEventCard()
   else if (dayPopover.open) closeDayPopover()
   else if (settings.open) settings.open = false
@@ -1322,6 +1390,30 @@ onBeforeUnmount(() => {
   font-size: 15px;
   font-weight: 650;
   letter-spacing: .01em;
+}
+.cal-filter-btn {
+  position: relative;
+  flex: 0 0 auto;
+}
+.cal-filter-btn[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.cal-filter-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
 }
 .cal-text-btn {
   display: inline-flex;
@@ -1906,16 +1998,75 @@ onBeforeUnmount(() => {
   .cal-shell.is-task-route {
     height: calc(100dvh - 64px);
   }
+  /* 手机工具栏改两行：
+     第一行 [日期标题][上一段/今天/下一段]，第二行 [筛选][视图][...][新增][更多]。
+     用 grid + display:contents 重排，DOM 顺序保持桌面那套，桌面样式完全不受影响。 */
   .cal-head {
-    gap: 6px;
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      'title title title title nav'
+      'filter view . add more';
+    align-items: center;
+    gap: 8px 6px;
+    min-height: 0;
+    padding: 8px;
+  }
+  .cal-head-left,
+  .cal-head-right {
+    display: contents;
+  }
+  /* 手机上没有左侧栏可展开，筛选统一走抽屉 */
+  .cal-sidebar-toggle {
+    display: none;
+  }
+  .cal-title {
+    grid-area: title;
+    font-size: 15px;
+  }
+  .cal-nav {
+    grid-area: nav;
+    height: 36px;
+    justify-self: end;
+  }
+  .cal-nav button {
+    min-width: 34px;
     padding: 0 8px;
   }
-  .cal-head-right {
-    gap: 4px;
-  }
   .cal-nav .cal-nav-today {
-    padding: 0 6px;
-    font-size: 11.5px;
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
+  .cal-filter-btn {
+    grid-area: filter;
+  }
+  .cal-view-wrap {
+    grid-area: view;
+  }
+  .cal-add-btn {
+    grid-area: add;
+  }
+  .cal-more-wrap {
+    grid-area: more;
+    justify-self: end;
+  }
+  /* 命中区不小于 36px，靠尺寸而不是缩字号塞进 390px */
+  .cal-head .cal-icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+  .cal-head .cal-text-btn {
+    height: 36px;
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
+  .cal-view-wrap .cal-menu {
+    top: 42px;
+    right: auto;
+    left: 0;
+  }
+  .cal-more-wrap .cal-menu {
+    top: 42px;
   }
   .cal-quick {
     top: 50px;

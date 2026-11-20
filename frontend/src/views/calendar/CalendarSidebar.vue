@@ -1,5 +1,5 @@
 <template>
-  <aside class="cal-sidebar" aria-label="日历筛选">
+  <aside class="cal-sidebar" :class="{ 'is-drawer': variant === 'drawer' }" aria-label="日历筛选">
     <section class="cal-mini" aria-label="迷你月历">
       <header class="cal-mini-head">
         <strong>{{ miniTitle }}</strong>
@@ -105,7 +105,9 @@ const props = defineProps({
   tags: { type: Array, default: () => [] },
   filters: { type: Array, default: () => [] },
   scope: { type: Object, required: true },
-  weekStart: { type: Number, default: 1 }
+  weekStart: { type: Number, default: 1 },
+  // sidebar：桌面左侧固定栏；drawer：手机筛选抽屉内，撑满抽屉宽度并自己滚动
+  variant: { type: String, default: 'sidebar' }
 })
 
 const emit = defineEmits(['move-month', 'go-today', 'select', 'update:scope'])
@@ -395,5 +397,28 @@ function selectFilter(filterId) {
 }
 .cal-sidebar::-webkit-scrollbar {
   width: 6px;
+}
+/* 抽屉形态：不再占固定 248px，宽度由抽屉决定，滚动交给内部列表 */
+.cal-sidebar.is-drawer {
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-right: 0;
+}
+.cal-sidebar.is-drawer .cal-mini {
+  padding: 10px 12px 6px;
+}
+.cal-sidebar.is-drawer .cal-mini-day {
+  min-height: 36px;
+}
+.cal-sidebar.is-drawer .cal-scope {
+  padding-bottom: 12px;
+  overscroll-behavior: contain;
+}
+/* 触摸场景把勾选行加高到 38px，避免误触相邻清单 */
+.cal-sidebar.is-drawer .cal-scope-head,
+.cal-sidebar.is-drawer .cal-scope-row {
+  min-height: 38px;
 }
 </style>

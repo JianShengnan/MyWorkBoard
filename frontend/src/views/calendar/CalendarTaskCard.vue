@@ -1,5 +1,13 @@
 <template>
-  <section class="ctc" :style="style" role="dialog" aria-label="任务详情" @click.stop="closeMenus">
+  <section
+    class="ctc"
+    :class="{ 'is-mobile': mobile }"
+    :style="style"
+    role="dialog"
+    :aria-modal="mobile ? 'true' : undefined"
+    aria-label="任务详情"
+    @click.stop="closeMenus"
+  >
     <header class="ctc-bar">
       <button
         type="button"
@@ -208,6 +216,8 @@ const props = defineProps({
   tags: { type: Array, default: () => [] },
   lunar: { type: Object, default: () => ({}) },
   focusMinutes: { type: Number, default: 0 },
+  // 手机断点（<=1023）：改成贴底全宽面板，桌面仍按父组件算出的浮层坐标定位
+  mobile: { type: Boolean, default: false },
   style: { type: Object, default: () => ({}) }
 })
 
@@ -1110,5 +1120,51 @@ function applyDate() {
 .ctc-date-actions button.is-ghost:hover {
   border-color: var(--down, #e34d59);
   color: var(--down, #e34d59);
+}
+
+/* 手机：任务详情改成贴底全宽面板；操作区（专注/打开详情/删除）始终可见 */
+.ctc.is-mobile {
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  max-height: min(86dvh, 760px);
+  border-width: 1px 0 0;
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -18px 48px rgb(15 23 42 / 24%);
+}
+.ctc.is-mobile .ctc-bar {
+  padding: 12px 12px 8px;
+}
+.ctc.is-mobile .ctc-status {
+  width: 22px;
+  height: 22px;
+}
+.ctc.is-mobile .ctc-flag,
+.ctc.is-mobile .ctc-close {
+  width: 36px;
+  height: 34px;
+}
+.ctc.is-mobile .ctc-title {
+  font-size: 18px;
+}
+.ctc.is-mobile .ctc-footer {
+  position: sticky;
+  bottom: 0;
+  padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+  background: var(--card);
+}
+.ctc.is-mobile .ctc-list {
+  min-height: 34px;
+  max-width: 46vw;
+}
+.ctc.is-mobile .ctc-actions button {
+  width: 36px;
+  height: 36px;
+}
+.ctc.is-mobile .ctc-tag-plus {
+  width: 28px;
+  height: 28px;
 }
 </style>

@@ -81,11 +81,12 @@
           :key="cell.key"
           type="button"
           class="hd-cell"
-          :class="[`is-${stateOf(cell.key)}`, { 'is-out': !cell.inMonth, 'is-today': cell.isToday }]"
+          :class="[`is-${stateOf(cell.key)}`, { 'is-out': !cell.inMonth, 'is-today': cell.isToday, 'is-picked': cell.key === pickedKey && cell.key !== today }]"
           :disabled="stateOf(cell.key) === 'future' || stateOf(cell.key) === 'none'"
           :title="cellTitle(cell)"
-          @click="emit('toggle', cell.key)"
+          @click="pickCell(cell.key)"
           @contextmenu.prevent="openCellMenu($event, cell.key)"
+          @keydown="onCellKeydown($event, cell.key)"
         >
           <template v-if="stateOf(cell.key) === 'done'">
             <span v-if="habit.checkStyle === 'ICON'" class="hd-cell-emoji">{{ habit.icon }}</span>
@@ -94,6 +95,13 @@
           <X v-else-if="stateOf(cell.key) === 'missed'" :size="14" :stroke-width="3" />
           <i v-else-if="stateOf(cell.key) === 'skip'" class="hd-cell-dot" />
           <i v-else-if="stateOf(cell.key) === 'partial'" class="hd-cell-ring" :style="{ '--fill': `${partialHeight(cell.key)}%` }" />
+        </button>
+      </div>
+      <!-- 手机没有右键：选中日期后用这个按钮打开「记录日志 / 跳过打卡 / 未完成」 -->
+      <div class="hd-day-tools">
+        <span class="hd-day-tools-label">{{ pickedLabel }}</span>
+        <button type="button" class="hd-day-actions" :aria-label="`打开 ${pickedLabel} 的当天操作`" @click="openPickedMenu">
+          <MoreHorizontal :size="15" />当天操作
         </button>
       </div>
     </div>
@@ -157,6 +165,8 @@ const menuOpen = ref(false)
 const subMenu = ref('')
 const streakMode = ref('current')
 const cursor = ref(currentCursor())
+/** 月历里选中的日期（默认今天），「当天操作」按钮锚定它 */
+const pickedKey = ref(props.today || '')
 
 // 「…」菜单和页面其它浮层互斥：页面开了菜单，这里自动收起
 useExclusivePanels('habit-detail', [
@@ -180,6 +190,11 @@ watch(() => props.habit?.publicId, () => {
   menuOpen.value = false
   subMenu.value = ''
   cursor.value = currentCursor()
+  pickedKey.value = props.today || ''
+})
+
+watch(() => props.today, value => {
+  if (!pickedKey.value) pickedKey.value = value || ''
 })
 
 const iconStyle = computed(() => ({
@@ -223,8 +238,49 @@ function cellTitle(cell) {
 function openCellMenu(event, key) {
   const state = stateOf(key)
   if (state === 'future' || state === 'none') return
+  pickedKey.value = key
   emit('dayMenu', { event, key })
 }
+
+/** 月格单击：沿用原来的打卡行为，同时把它记为「当天操作」的目标日期 */
+function pickCell(key) {
+  const state = stateOf(key)
+  if (state === 'future' || state === 'none') return
+  pickedKey.value = key
+  emit('toggle', key)
+}
+
+/** 键盘：Shift+Enter 或菜单键打开当天操作，菜单贴格子下方 */
+function onCellKeydown(event, key) {
+  if (!(event.key === 'ContextMenu' || (event.shiftKey && event.key === 'Enter'))) return
+  event.preventDefault()
+  openAnchoredMenu(event, key)
+}
+
+function openAnchoredMenu(event, key) {
+  const state = stateOf(key)
+  if (state === 'future' || state === 'none') return
+  pickedKey.value = key
+  const rect = event.currentTarget?.getBoundingClientRect?.()
+  emit('dayMenu', {
+    key,
+    event: rect
+      ? { clientX: Math.round(rect.left), clientY: Math.round(rect.bottom + 2) }
+      : { clientX: 0, clientY: 0 }
+  })
+}
+
+/** 「当天操作」按钮：没有右键的长按/右键也能拿到三项按天动作 */
+function openPickedMenu(event) {
+  openAnchoredMenu(event, pickedKey.value)
+}
+
+const pickedLabel = computed(() => {
+  if (!pickedKey.value) return '未选择日期'
+  const date = parseKey(pickedKey.value)
+  const label = `${date.getMonth() + 1}月${date.getDate()}日`
+  return pickedKey.value === props.today ? `今天 · ${label}` : label
+})
 
 function logKey(log) {
   return String(log.date).slice(0, 10)
@@ -381,6 +437,8 @@ onBeforeUnmount(() => {
 .hd-cell.is-today { box-shadow: inset 0 0 0 2px #3d8fce; }
 .hd-cell.is-today.is-done { box-shadow: 0 0 0 2px color-mix(in srgb, #3d8fce 28%, transparent); }
 .hd-cell.is-future, .hd-cell.is-none { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+/* 选中的过去日期：外圈淡蓝，提示「当天操作」作用于它；用 outline 避免覆盖完成/漏打的 box-shadow */
+.hd-cell.is-picked { outline: 2px solid color-mix(in srgb, #3d8fce 32%, transparent); outline-offset: 1px; }
 .hd-cell-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .hd-cell-emoji { font-size: 13px; }
 .hd-cell-ring {
@@ -389,6 +447,21 @@ onBeforeUnmount(() => {
   -webkit-mask: radial-gradient(circle, transparent 55%, #000 57%);
   mask: radial-gradient(circle, transparent 55%, #000 57%);
 }
+
+.hd-day-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--line) 62%, transparent); }
+.hd-day-tools-label { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.hd-day-actions {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 36px; padding: 4px 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: transparent; color: var(--ink2);
+  font: inherit; font-size: 12px; cursor: pointer;
+  transition: border-color .14s ease, color .14s ease, background .14s ease;
+}
+.hd-day-actions:hover { border-color: #3d8fce; background: color-mix(in srgb, #3d8fce 7%, transparent); color: #3d8fce; }
+.hd-day-actions:focus-visible { outline: 2px solid #3d8fce; outline-offset: 1px; }
+/* 手机上按钮本来就会被全局规则抬到 36px，这里只补宽度下限，避免挤在右侧 */
+@media (max-width: 767px) { .hd-day-actions { min-width: 96px; justify-content: center; } }
 
 .hd-logs { display: grid; gap: 8px; padding: 12px 14px 14px; border-radius: 10px; background: var(--card); box-shadow: 0 1px 2px rgb(35 43 57 / 6%), 0 0 0 1px rgb(35 43 57 / 4%); }
 .hd-logs h3 { margin: 0; font-size: 14.5px; font-weight: 600; }

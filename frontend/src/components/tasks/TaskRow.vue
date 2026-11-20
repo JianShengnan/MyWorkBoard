@@ -215,6 +215,11 @@ const doneItems = computed(() => (props.task.checklist || []).filter((item) => i
   content: "";
 }
 .clone-check svg { position: absolute; width: 10px; height: 10px; }
+/* 触摸端没有精确指针：::after 把可点区域扩到 36px+，视觉方框仍是 14px。
+   右侧紧邻拖拽手柄会压住扩展区，所以向左多给一些（-8px），保证横向仍够 36px */
+@media (hover: none), (max-width: 900px) {
+  .clone-check::after { position: absolute; inset: -6px -4px -6px -8px; content: ""; }
+}
 .clone-task-content {
   display: flex;
   align-items: center;
@@ -429,6 +434,11 @@ const doneItems = computed(() => (props.task.checklist || []).filter((item) => i
   content: "";
 }
 .clone-check svg { position: absolute; width: 10px; height: 10px; }
+/* 触摸端没有精确指针：::after 把可点区域扩到 36px+，视觉方框仍是 14px。
+   右侧紧邻拖拽手柄会压住扩展区，所以向左多给一些（-8px），保证横向仍够 36px */
+@media (hover: none), (max-width: 900px) {
+  .clone-check::after { position: absolute; inset: -6px -4px -6px -8px; content: ""; }
+}
 .clone-task-content {
   display: flex;
   align-items: center;

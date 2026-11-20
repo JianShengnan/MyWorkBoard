@@ -218,6 +218,7 @@ import {
 } from '../components/habits/habitUtils.js'
 import { loadCustomGroups } from '../components/habits/habitGroups.js'
 import { useExclusivePanels } from '../utils/exclusivePanels.js'
+import { clampMenuPoint } from '../utils/menuPosition.js'
 import { uuid } from '../utils/uuid.js'
 import { playCompleteSound } from '../utils/completeSound.js'
 import { useSettings } from '../components/settings/useSettings.js'
@@ -581,12 +582,8 @@ async function openDayMenu({ event, key }) {
   const el = dayMenuEl.value
   if (!el || !dayMenu.value) return
   const rect = el.getBoundingClientRect()
-  const pad = 8
-  dayMenu.value = {
-    ...dayMenu.value,
-    x: Math.max(pad, Math.min(event.clientX, window.innerWidth - rect.width - pad)),
-    y: Math.max(pad, Math.min(event.clientY, window.innerHeight - rect.height - pad))
-  }
+  const point = clampMenuPoint(event.clientX, event.clientY, rect.width, rect.height, window.innerWidth, window.innerHeight)
+  dayMenu.value = { ...dayMenu.value, ...point }
 }
 
 async function runDay(action) {
@@ -643,11 +640,9 @@ async function openContext(event, habit) {
   const el = contextEl.value
   if (!el || !context.value) return
   const rect = el.getBoundingClientRect()
-  const pad = 8
-  const maxX = window.innerWidth - rect.width - pad
-  const maxY = window.innerHeight - rect.height - pad
-  const x = Math.max(pad, Math.min(event.clientX, maxX))
-  const y = Math.max(pad, Math.min(event.clientY, maxY))
+  const point = clampMenuPoint(event.clientX, event.clientY, rect.width, rect.height, window.innerWidth, window.innerHeight)
+  const x = point.x
+  const y = point.y
   context.value = { ...context.value, x, y, flip: x + rect.width + SUB_WIDTH + 12 > window.innerWidth }
 }
 

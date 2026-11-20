@@ -1,5 +1,5 @@
 <template>
-  <aside class="cal-plan" aria-label="安排任务">
+  <aside class="cal-plan" :aria-modal="mobile ? 'true' : undefined" aria-label="安排任务">
     <header>
       <div>
         <b>安排任务</b>
@@ -68,7 +68,9 @@ const props = defineProps({
   undated: { type: Boolean, default: true },
   overdue: { type: Boolean, default: false },
   hideNotes: { type: Boolean, default: false },
-  hideHierarchy: { type: Boolean, default: false }
+  hideHierarchy: { type: Boolean, default: false },
+  // 手机断点（<=1023）：面板改成右侧抽屉，需要把自己标成模态，随身 AI 才会让位
+  mobile: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([

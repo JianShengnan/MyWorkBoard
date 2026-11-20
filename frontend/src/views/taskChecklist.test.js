@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { moveChecklistItem } from './taskChecklist.js'
+import { moveChecklistItem, moveChecklistItemBy } from './taskChecklist.js'
 
 test('checklist reordering preserves item data and moves rows to the requested index', () => {
   const items = [
@@ -19,4 +19,18 @@ test('checklist reordering leaves invalid and same-position moves unchanged', ()
   assert.equal(moveChecklistItem(items, -1, 1), items)
   assert.equal(moveChecklistItem(items, 0, 2), items)
   assert.equal(moveChecklistItem(items, 1, 1), items)
+})
+
+test('上下移动一步与拖拽落到相邻位置等价，越界时保持原数组', () => {
+  const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+
+  assert.deepEqual(moveChecklistItemBy(items, 0, 1), moveChecklistItem(items, 0, 1))
+  assert.deepEqual(moveChecklistItemBy(items, 2, -1).map(item => item.id), ['a', 'c', 'b'])
+  assert.deepEqual(moveChecklistItemBy(items, 1, 1).map(item => item.id), ['a', 'c', 'b'])
+  assert.deepEqual(moveChecklistItemBy(items, 1, -1).map(item => item.id), ['b', 'a', 'c'])
+
+  assert.equal(moveChecklistItemBy(items, 0, -1), items)
+  assert.equal(moveChecklistItemBy(items, 2, 1), items)
+  assert.equal(moveChecklistItemBy([], 0, 1).length, 0)
+  assert.equal(items.map(item => item.id).join(''), 'abc')
 })

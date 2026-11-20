@@ -1,6 +1,17 @@
 <template>
   <Teleport to="body">
-  <div v-if="open" ref="rootEl" class="cal-quick" :style="style" role="dialog" :aria-label="ariaLabel" @click.stop @keydown.esc.prevent="onCardEscape">
+  <div
+    v-if="open"
+    ref="rootEl"
+    class="cal-quick"
+    :class="{ 'is-mobile': mobile }"
+    :style="style"
+    role="dialog"
+    :aria-modal="mobile ? 'true' : undefined"
+    :aria-label="ariaLabel"
+    @click.stop
+    @keydown.esc.prevent="onCardEscape"
+  >
     <header class="cal-quick-head">
       <button ref="dateBtn" type="button" class="cal-quick-date" :aria-expanded="dateOpen" @click.stop="dateOpen = !dateOpen">
         <CalendarDays :size="15" />{{ dateLabel }}
@@ -15,6 +26,7 @@
           </button>
         </div>
       </div>
+      <button v-if="mobile" type="button" class="cal-quick-close" aria-label="取消新增" title="取消" @click.stop="$emit('close')"><X :size="17" /></button>
     </header>
 
     <textarea
@@ -190,6 +202,8 @@ const props = defineProps({
   saving: { type: Boolean, default: false },
   placeholder: { type: String, default: '准备做什么？' },
   ariaLabel: { type: String, default: '新增任务' },
+  // 手机断点（<=1023）由父组件传入：贴底全宽面板 + 内部滚动 + 底部安全区
+  mobile: { type: Boolean, default: false },
   style: { type: [Object, String], default: () => ({}) }
 })
 
@@ -572,4 +586,78 @@ function confirmDate() {
 .cal-quick-date-row.is-switch button.on i { transform: translateX(17px); }
 .cal-quick-date-hint { margin: 0; color: var(--muted); font-size: 11.5px; }
 .cal-quick-date-popover :deep(.task-date-time-popover) { width: 100%; box-shadow: 0 18px 40px rgb(15 23 42 / 22%); }
+
+/* 手机：贴底全宽面板。几何全部由这里接管，父组件在窄屏下只传 zIndex */
+.cal-quick.is-mobile {
+  position: fixed;
+  z-index: 1300;
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  max-height: min(86dvh, 760px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 14px 0;
+  border-width: 1px 0 0;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -18px 48px rgb(15 23 42 / 24%);
+  animation: cal-quick-rise .18s ease-out;
+}
+.cal-quick.is-mobile::before {
+  align-self: center;
+  width: 36px;
+  height: 4px;
+  margin-bottom: 4px;
+  border-radius: 2px;
+  background: var(--line2);
+  content: '';
+}
+.cal-quick.is-mobile .cal-quick-head {
+  gap: 6px;
+}
+.cal-quick.is-mobile .cal-quick-close {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 36px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink2);
+  cursor: pointer;
+}
+.cal-quick.is-mobile .cal-quick-close:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+/* 保存/取消钉在面板底部：内层滚动时也始终点得到，并让出 iOS 底部安全区 */
+.cal-quick.is-mobile .cal-quick-foot {
+  position: sticky;
+  bottom: 0;
+  margin: 0 -14px;
+  padding: 8px 14px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+.cal-quick.is-mobile .cal-quick-save {
+  min-width: 84px;
+  height: 36px;
+  font-size: 13px;
+}
+.cal-quick.is-mobile .cal-quick-list,
+.cal-quick.is-mobile .cal-quick-more {
+  min-height: 36px;
+}
+@keyframes cal-quick-rise {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cal-quick.is-mobile {
+    animation: none;
+  }
+}
 </style>

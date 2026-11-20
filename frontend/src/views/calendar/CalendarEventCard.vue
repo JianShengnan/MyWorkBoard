@@ -6,6 +6,7 @@
     :tags="tags"
     :lunar="lunar"
     :focus-minutes="focusMinutes"
+    :mobile="mobile"
     :style="style"
     @close="$emit('close')"
     @complete="$emit('complete')"
@@ -16,7 +17,7 @@
     @open-detail="$emit('open-detail')"
   />
 
-  <section v-else-if="event.kind === 'habit' && habit" class="cal-pop is-habit" :style="style" role="dialog" aria-label="习惯" @click.stop>
+  <section v-else-if="event.kind === 'habit' && habit" class="cal-pop is-habit" :class="{ 'is-mobile': mobile }" :style="style" role="dialog" :aria-modal="mobile ? 'true' : undefined" aria-label="习惯" @click.stop>
     <button type="button" class="cal-pop-close" aria-label="关闭" @click="$emit('close')"><X :size="14" /></button>
     <div class="cal-habit-head">
       <span class="cal-habit-icon" :style="{ background: habit.color || 'var(--accent)' }"><TaskOrganizationIcon :value="habit.icon || '✓'" :size="18" /></span>
@@ -27,7 +28,7 @@
     </button>
   </section>
 
-  <section v-else-if="event.kind === 'focus' && session" class="cal-pop is-focus" :style="style" role="dialog" aria-label="专注记录" @click.stop>
+  <section v-else-if="event.kind === 'focus' && session" class="cal-pop is-focus" :class="{ 'is-mobile': mobile }" :style="style" role="dialog" :aria-modal="mobile ? 'true' : undefined" aria-label="专注记录" @click.stop>
     <header class="cal-focus-head">
       <span class="cal-focus-badge" :class="{ done: session.status === 'COMPLETED' }"><Check :size="11" /></span>
       <b>{{ session.taskTitle || '未关联任务' }}</b>
@@ -49,7 +50,7 @@
     </footer>
   </section>
 
-  <section v-else-if="event.kind === 'countdown' && countdown" class="cal-pop is-countdown" :style="style" role="dialog" aria-label="倒数日" @click.stop>
+  <section v-else-if="event.kind === 'countdown' && countdown" class="cal-pop is-countdown" :class="{ 'is-mobile': mobile }" :style="style" role="dialog" :aria-modal="mobile ? 'true' : undefined" aria-label="倒数日" @click.stop>
     <button type="button" class="cal-pop-close" aria-label="关闭" @click="$emit('close')"><X :size="14" /></button>
     <div class="cal-habit-head">
       <span class="cal-habit-icon" :style="{ background: event.color }"><Hourglass :size="16" /></span>
@@ -76,6 +77,8 @@ const props = defineProps({
   tasks: { type: Array, default: () => [] },
   lunar: { type: Object, default: () => ({}) },
   focusMinutes: { type: Number, default: 0 },
+  // 手机断点（<=1023）：任务卡与习惯/专注/倒数日卡都改成贴底全宽面板
+  mobile: { type: Boolean, default: false },
   style: { type: Object, default: () => ({}) }
 })
 
@@ -373,5 +376,42 @@ function relinkTask(taskId) {
   margin: 0;
   color: var(--muted);
   font-size: 11.5px;
+}
+
+/* 手机：习惯/专注/倒数日卡统一贴底全宽，避免 300px 窄卡在拇指区外 */
+.cal-pop.is-mobile {
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  max-height: min(86dvh, 720px);
+  overflow-y: auto;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  border-width: 1px 0 0;
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -18px 48px rgb(15 23 42 / 24%);
+}
+.cal-pop.is-mobile .cal-habit-btn {
+  min-height: 42px;
+  font-size: 14px;
+}
+.cal-pop.is-mobile .cal-pop-close {
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+}
+.cal-pop.is-mobile .cal-focus-link > button {
+  width: 32px;
+  height: 32px;
+}
+.cal-pop.is-mobile .cal-focus-foot button {
+  width: 36px;
+  height: 36px;
+}
+.cal-pop.is-mobile .cal-focus-menu {
+  right: -4px;
+  width: min(240px, calc(100vw - 48px));
 }
 </style>

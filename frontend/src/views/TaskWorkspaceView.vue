@@ -1116,10 +1116,12 @@
             @drop.prevent="dropDetailChecklist(index)"
             @dragend="detailChecklistDragIndex = null; detailChecklistDropTarget = null"
           >
-            <button type="button" class="clone-checklist-grip" draggable="true" aria-label="拖动排序" tabindex="-1" @dragstart="startDetailChecklistDrag(index, $event)"><GripVertical :size="14" /></button>
-            <input type="checkbox" :checked="item.completed" @change="toggleChecklistItem(selectedTask, item)" />
+            <button type="button" class="clone-checklist-grip" draggable="true" :aria-label="`拖动排序检查项 ${index + 1}，可用上下方向键移动`" tabindex="0" @dragstart="startDetailChecklistDrag(index, $event)" @keydown.up.prevent="moveDetailChecklistItem(index, -1)" @keydown.down.prevent="moveDetailChecklistItem(index, 1)"><GripVertical :size="14" /></button>
+            <label class="clone-checklist-hit"><input type="checkbox" :checked="item.completed" :aria-label="`完成检查项${item.title || index + 1}`" @change="toggleChecklistItem(selectedTask, item)" /></label>
             <input v-if="detailChecklistEditingIndex === index" v-model="detailChecklistDraft" type="text" class="clone-detail-checklist-title-input" :aria-label="`编辑检查项 ${index + 1}`" @keydown.enter.prevent="saveDetailChecklistTitleAndNext(selectedTask, index)" @keydown.esc.prevent="cancelDetailChecklistEdit(item)" @blur="saveDetailChecklistTitle(selectedTask, index)" />
             <span v-else :class="{ completed: item.completed }" @click.stop.prevent="beginDetailChecklistEdit(item, index)">{{ item.title || '无标题' }}</span>
+            <button type="button" class="clone-checklist-move" :aria-label="`上移检查项${item.title || index + 1}`" :disabled="index === 0" @click.stop="moveDetailChecklistItem(index, -1)"><ChevronUp :size="14" /></button>
+            <button type="button" class="clone-checklist-move" :aria-label="`下移检查项${item.title || index + 1}`" :disabled="index === selectedTask.checklist.length - 1" @click.stop="moveDetailChecklistItem(index, 1)"><ChevronDown :size="14" /></button>
             <button type="button" class="clone-checklist-remind" :class="{ active: item.remindAt }" :aria-label="item.remindAt ? `检查项提醒 ${formatChecklistReminder(item.remindAt)}` : '设置检查项提醒'" :title="item.remindAt ? `提醒：${formatChecklistReminder(item.remindAt)}` : '设置提醒'" @click.stop="openChecklistReminder(item, index)"><Bell :size="14" /></button>
             <button type="button" class="clone-checklist-remove" :aria-label="`删除检查项${item.title || index + 1}`" @click.stop="removeDetailChecklistItem(selectedTask, index)"><Trash2 :size="14" /></button>
             <div v-if="checklistReminderIndex === index" class="clone-checklist-reminder-popover" @click.stop>
@@ -1491,6 +1493,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Circle,
   CircleDot,
   CircleMinus,
@@ -1565,7 +1568,7 @@ import { getListDropPlacement, moveItem, reorderListDrop } from "./taskSidebar.j
 import { groupTaskItems, sortTaskItems, taskGroupDropPatch } from "./taskList.js";
 import { buildTaskListGroups } from "./taskWorkspaceTree.js";
 import { taskDetailPresentation } from "./taskDetailPresentation.js";
-import { moveChecklistItem as reorderChecklistItems } from "./taskChecklist.js";
+import { moveChecklistItemBy, moveChecklistItem as reorderChecklistItems } from "./taskChecklist.js";
 import { matchesFilterRules, serializeFilterRules } from "./taskFilterRules.js";
 import { advancedFilterConditionsFromRules, advancedFilterConditionsValid, buildAdvancedFilterRules } from "./taskAdvancedFilter.js";
 import { buildTaskSidebarCounts } from "./taskSidebarCounts.js";
@@ -5418,6 +5421,14 @@ function dropDetailChecklist(target) {
   const next = [...task.checklist];
   const [moved] = next.splice(from, 1);
   next.splice(target, 0, moved);
+  void applyDetailChecklist(next);
+}
+/** 详情检查项的点击式排序：和拖拽走同一条 applyDetailChecklist 写回路径 */
+function moveDetailChecklistItem(index, offset) {
+  const task = selectedTask.value;
+  if (!task?.checklist?.length) return;
+  const next = moveChecklistItemBy(task.checklist, index, offset);
+  if (next === task.checklist) return;
   void applyDetailChecklist(next);
 }
 async function removeDetailChecklistItem(task, index) {
@@ -9349,6 +9360,11 @@ const SidebarSection = {
 .clone-efficiency-check > span { font-size: 12px; line-height: 1; }
 .clone-efficiency-check.is-missed { border-color: color-mix(in srgb, #e34d59 42%, var(--line2)); color: #e34d59; }
 .clone-efficiency-check.is-skipped { color: var(--muted); }
+/* 触摸端没有 hover，21px 的圆点直接点很难命中：::before 把可点区域扩到 37px，视觉不变 */
+@media (hover: none), (max-width: 900px) {
+  .clone-efficiency-check { position: relative; }
+  .clone-efficiency-check::before { position: absolute; inset: -8px; content: ""; }
+}
 /* 今天页习惯行：已结算的整行压灰、图标去饱和、沉到组底 */
 .clone-efficiency-row.habit-row.is-settled { background: color-mix(in srgb, var(--paper) 45%, transparent); }
 .clone-efficiency-row.habit-row.is-settled strong { color: var(--muted); font-weight: 400; }
@@ -10141,11 +10157,36 @@ const SidebarSection = {
 .clone-checklist-row:hover .clone-checklist-remove { opacity: .7; }
 .clone-checklist-row:hover .clone-checklist-remove:hover { background: color-mix(in srgb, var(--down) 12%, transparent); color: var(--down); opacity: 1; }
 .clone-checklist-row.drop-target { box-shadow: inset 0 2px 0 var(--accent); }
+/* 详情检查项比编辑草稿多两列：上移 / 下移；复选框列留 20px 给 36px 命中区 */
+.clone-checklist-read .clone-checklist-row { grid-template-columns: 16px 36px minmax(0, 1fr) 32px 32px 22px 22px; }
+/* 点击式排序按钮：图标与提醒/删除同档，按钮本身 32×32 就是命中区，行高仍是 34px */
+.clone-checklist-move {
+  display: grid; place-items: center;
+  width: 32px; height: 32px; min-width: 0; min-height: 0;
+  padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted); opacity: .45; cursor: pointer;
+}
+.clone-checklist-move:not(:disabled):hover { background: var(--accent-soft); color: var(--accent); opacity: 1; }
+.clone-checklist-move:disabled { opacity: .16; cursor: default; }
+.clone-checklist-row:hover .clone-checklist-move:not(:disabled) { opacity: .72; }
+.clone-checklist-move:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: -2px; }
+/* 检查项复选框视觉保持原尺寸，命中区靠 label 撑到 36×36。
+   列宽本身就是 36px，不再用负外边距外溢到标题上（否则标题左侧 8px 点不到编辑） */
+.clone-checklist-hit {
+  position: relative;
+  display: grid; width: 36px; height: 36px;
+  margin: -1px 0;
+  place-items: center; justify-self: center;
+  cursor: pointer;
+}
+.clone-checklist-hit input[type="checkbox"] { margin: 0; }
 .clone-checklist-draft { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 34px; }
 .clone-checklist-draft input { min-width: 0; padding: 4px 0; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 13px; outline: none; }
 .clone-checklist-draft .is-placeholder { opacity: .25; }
 /* 拖拽高亮只用 box-shadow（不占位）；用 border-top 会把行往下推 2px，拖拽时整列跳动 */
 .clone-checklist-row .clone-checklist-grip { cursor: grab; touch-action: none; }
+/* 拖拽手柄可聚焦：键盘 Tab 到这里时要能看见，方向键即可排序 */
+.clone-checklist-row .clone-checklist-grip:focus-visible { opacity: .85; outline: 2px solid var(--accent); outline-offset: -2px; }
 /* 触屏没有 hover，拖拽手柄常显，否则移动端无法排序 */
 @media (max-width: 900px), (hover: none) { .clone-checklist-row .clone-checklist-grip { opacity: .55; } }
 .clone-checklist-row .clone-checklist-grip:active { cursor: grabbing; }

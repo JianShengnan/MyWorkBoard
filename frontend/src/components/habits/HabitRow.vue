@@ -42,12 +42,24 @@
       <X v-else-if="stateOf(today) === 'missed'" :size="14" :stroke-width="3" />
       <span v-else-if="stateOf(today) === 'skip'" class="hr-check-dot" />
     </button>
+
+    <!-- 触摸端没有右键：常显「更多」，点一下等同右键菜单，坐标按按钮自身定位 -->
+    <button
+      type="button"
+      class="hr-more"
+      :aria-label="`更多操作：${habit.name}`"
+      title="更多操作"
+      @click.stop="openMenuFromButton"
+      @keydown.stop
+    >
+      <MoreHorizontal :size="16" />
+    </button>
   </li>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import { Check, Flame, X, Zap } from 'lucide-vue-next'
+import { Check, Flame, MoreHorizontal, X, Zap } from 'lucide-vue-next'
 import { currentStreak, dayLabel, dayState, goalLabel, totalDone } from './habitUtils.js'
 
 const props = defineProps({
@@ -79,6 +91,16 @@ function backgroundOf(color) {
 
 function stateOf(key) {
   return dayState(props.habit, props.checkins, key, props.today)
+}
+
+/** 「更多」按钮把自己右下角当成菜单锚点，交给页面统一做视口内收敛 */
+function openMenuFromButton(event) {
+  const rect = event.currentTarget.getBoundingClientRect()
+  emit('menu', {
+    clientX: Math.round(rect.right - 6),
+    clientY: Math.round(rect.bottom - 4),
+    currentTarget: event.currentTarget
+  })
 }
 
 function stateText(state) {
@@ -182,6 +204,27 @@ void dayLabel
 .hr-check.is-future, .hr-check.is-none { border-color: color-mix(in srgb, var(--line2) 55%, transparent); }
 .hr-check-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .hr-check-icon { font-size: 13px; line-height: 1; }
+
+/* 「更多」：36px 命中区（手机规则也要求 36px），靠负外边距抵消，不把 54px 的行撑高 */
+.hr-more {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  flex: 0 0 auto;
+  margin: -3px -8px -3px 0;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .14s ease, color .14s ease;
+}
+.hr-more:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); color: var(--ink); }
+.hr-more:focus-visible { outline: 2px solid #3d8fce; outline-offset: -3px; }
 
 /* 卡片样式：两列网格，卡片本身不变 */
 .hr.is-grid { padding: 9px 11px; }

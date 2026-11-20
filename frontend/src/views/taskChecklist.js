@@ -7,3 +7,8 @@ export function moveChecklistItem(items, from, to) {
   result.splice(to, 0, item)
   return result
 }
+
+/** 上移 / 下移：offset 为 -1 / +1，越界时原样返回，和拖拽用同一套落点语义 */
+export function moveChecklistItemBy(items, index, offset) {
+  return moveChecklistItem(items, index, index + offset)
+}
