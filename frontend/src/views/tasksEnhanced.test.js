@@ -1320,8 +1320,8 @@ test('摘要页显示内容菜单不超出视口，编辑器保留表格结构�
 })
 
 test('任务详情栏第一批改造：检查项、描述插入菜单、标签、底部清单（P2-FE123）', async () => {
-  // 检查项：拖动排序 / 回车续建 / 删除
-  assert.match(workspaceView, /class="clone-checklist-row"[\s\S]{0,400}draggable="true"[\s\S]{0,400}@drop\.prevent="dropDetailChecklist\(index\)"/)
+  // 检查项：拖动排序（手柄可拖，行本身不 draggable，否则点复选框会被拖拽吞掉）/ 回车续建 / 删除
+  assert.match(workspaceView, /class="clone-checklist-row"[\s\S]{0,400}@drop\.prevent="dropDetailChecklist\(index\)"[\s\S]{0,400}class="clone-checklist-grip" draggable="true"[\s\S]{0,200}@dragstart="startDetailChecklistDrag\(index, \$event\)"/)
   assert.match(workspaceView, /class="clone-checklist-remove"[\s\S]{0,160}removeDetailChecklistItem\(selectedTask, index\)/)
   assert.match(workspaceView, /placeholder="输入检查项，回车创建下一条"/)
   assert.match(workspaceView, /async function submitDetailChecklistDraft\(\)[\s\S]*detailChecklistDraftOpen\.value = true[\s\S]*nextTick\(\(\) => detailChecklistDraftInput\.value\?\.focus\(\)\)/)

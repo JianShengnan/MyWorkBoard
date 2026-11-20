@@ -631,7 +631,7 @@
           <ChevronDown :size="16" :class="{ rotated: collapsed.searchHabits }" /><strong>习惯</strong><span>{{ searchHabits.length }}</span>
         </button>
         <div class="clone-collapse-panel" :class="{ 'is-collapsed': collapsed.searchHabits }" :aria-hidden="collapsed.searchHabits"><div class="clone-efficiency-rows clone-collapse-inner" :inert="collapsed.searchHabits">
-          <button v-for="item in searchHabits" :key="item.publicId" type="button" class="clone-efficiency-row is-clickable habit-row" :style="{ '--efficiency-color': item.color || '#22c55e' }" :aria-label="`打开习惯${item.name}`" @click="openHabitPane(item)">
+          <button v-for="item in searchHabits" :key="item.publicId" type="button" class="clone-efficiency-row is-clickable habit-row" :style="{ '--efficiency-color': item.color || '#22c55e' }" :aria-label="`打开习惯${item.name}`" @click="openHabitPane(item)" @contextmenu.prevent="openHabitContext(item, $event)">
             <span class="clone-efficiency-badge" :style="iconBadgeStyle(item.color)">{{ item.icon || '✓' }}</span><strong>{{ item.name }}</strong><span class="clone-efficiency-meta">{{ habitDone(item) ? '已完成' : '待打卡' }}</span>
           </button>
         </div></div>
@@ -715,7 +715,7 @@
               <ChevronDown :size="16" :class="{ rotated: collapsed.habits }" /><strong>习惯</strong><span>{{ todayHabits.length }}</span>
             </button>
             <div class="clone-collapse-panel" :class="{ 'is-collapsed': collapsed.habits }" :aria-hidden="collapsed.habits"><div class="clone-efficiency-rows clone-collapse-inner" :inert="collapsed.habits">
-              <article v-for="item in todayHabits" :key="item.publicId" class="clone-efficiency-row is-clickable habit-row" :class="{ 'is-settled': habitSettled(item) }" :style="{ '--efficiency-color': item.color || '#22c55e' }" role="button" tabindex="0" :aria-label="`打开习惯${item.name}`" @click="openHabitPane(item)" @keydown.enter.prevent="openHabitPane(item)">
+              <article v-for="item in todayHabits" :key="item.publicId" class="clone-efficiency-row is-clickable habit-row" :class="{ 'is-settled': habitSettled(item) }" :style="{ '--efficiency-color': item.color || '#22c55e' }" role="button" tabindex="0" :aria-label="`打开习惯${item.name}`" @click="openHabitPane(item)" @keydown.enter.prevent="openHabitPane(item)" @contextmenu.prevent="openHabitContext(item, $event)">
                 <button type="button" class="clone-efficiency-check" :class="{ checked: habitDone(item), 'is-missed': habitMissed(item), 'is-skipped': habitStateToday(item) === 'skip' }" :aria-label="`${habitDone(item) ? '取消' : '完成'}习惯${item.name}`" @click.stop="toggleHabitToday(item)"><span v-if="habitDone(item)">✓</span><span v-else-if="habitMissed(item)">✕</span><span v-else-if="habitStateToday(item) === 'skip'">–</span></button>
                 <span class="clone-efficiency-badge" :style="iconBadgeStyle(item.color)">{{ item.icon || '✓' }}</span><strong>{{ item.name }}</strong><span class="clone-efficiency-meta">{{ habitStateLabel(item) }}</span>
               </article>
@@ -983,7 +983,7 @@
         </fieldset>
         <section class="clone-checklist-editor" aria-label="检查项">
           <header><strong>检查项</strong><button type="button" aria-label="添加检查项" @click="addChecklistItem"><Plus :size="15" /></button></header>
-          <div v-for="(item, index) in draft.checklistItems" :key="item.id || index" class="clone-checklist-row" :class="{ 'drop-target': checklistDropTarget === index }" @dragover.prevent="checklistDropTarget = index" @dragleave="checklistDropTarget = null" @drop.prevent="dropChecklistItem(index)">
+          <div v-for="(item, index) in draft.checklistItems" :key="item.id || index" class="clone-checklist-row" :class="{ 'drop-target': checklistDropTarget === index }" @dragover.prevent="checklistDropTarget = index" @dragleave="leaveEditChecklistRow" @drop.prevent="dropChecklistItem(index)">
             <button type="button" class="clone-checklist-grip" draggable="true" :aria-label="`拖动检查项 ${index + 1}`" @dragstart="dragChecklistItem(index, $event)" @dragend="checklistDropTarget = null"><GripVertical :size="14" /></button>
             <input v-model="item.completed" type="checkbox" :aria-label="`完成检查项 ${index + 1}`" />
             <input v-model="item.title" :class="{ completed: item.completed }" :aria-label="`检查项 ${index + 1}`" placeholder="添加检查项" />
@@ -1110,14 +1110,12 @@
             class="clone-checklist-row"
             :class="{ completed: item.completed, 'drop-target': detailChecklistDropTarget === index }"
             :data-checklist-index="index"
-            draggable="true"
-            @dragstart="startDetailChecklistDrag(index, $event)"
             @dragover.prevent="detailChecklistDropTarget = index"
-            @dragleave="detailChecklistDropTarget === index ? detailChecklistDropTarget = null : null"
+            @dragleave="leaveDetailChecklistRow($event, index)"
             @drop.prevent="dropDetailChecklist(index)"
             @dragend="detailChecklistDragIndex = null; detailChecklistDropTarget = null"
           >
-            <button type="button" class="clone-checklist-grip" aria-label="拖动排序" tabindex="-1"><GripVertical :size="14" /></button>
+            <button type="button" class="clone-checklist-grip" draggable="true" aria-label="拖动排序" tabindex="-1" @dragstart="startDetailChecklistDrag(index, $event)"><GripVertical :size="14" /></button>
             <input type="checkbox" :checked="item.completed" @change="toggleChecklistItem(selectedTask, item)" />
             <input v-if="detailChecklistEditingIndex === index" v-model="detailChecklistDraft" type="text" class="clone-detail-checklist-title-input" :aria-label="`编辑检查项 ${index + 1}`" @keydown.enter.prevent="saveDetailChecklistTitleAndNext(selectedTask, index)" @keydown.esc.prevent="cancelDetailChecklistEdit(item)" @blur="saveDetailChecklistTitle(selectedTask, index)" />
             <span v-else :class="{ completed: item.completed }" @click.stop.prevent="beginDetailChecklistEdit(item, index)">{{ item.title || '无标题' }}</span>
@@ -1320,6 +1318,15 @@
       <button type="button" @click="duplicateTask(context.task); closeContext()"><Copy :size="14" />创建副本</button>
       <button type="button" class="danger" @click="deleteTask(context.task); closeContext()"><Trash2 :size="14" />删除任务</button>
     </div>
+    <div v-if="habitContext.open" class="clone-context-menu clone-task-row-menu" :style="{ left: `${habitContext.x}px`, top: `${habitContext.y}px` }" role="menu" @pointerdown.stop @click.stop>
+      <strong>{{ habitContext.habit?.name }}</strong>
+      <button type="button" @click="openHabitPane(habitContext.habit); closeHabitContext()"><Pencil :size="14" />打开详情</button>
+      <button type="button" @click="toggleHabitFromContext(habitContext.habit)"><CheckCircle2 :size="14" />{{ habitDone(habitContext.habit) ? '取消今天打卡' : '今天打卡' }}</button>
+      <button type="button" @click="skipHabitFromContext(habitContext.habit)"><Minus :size="14" />今天跳过</button>
+      <button type="button" @click="openHabitLogForContext(habitContext.habit)"><FileText :size="14" />记录日志</button>
+      <div class="clone-context-divider" aria-hidden="true"></div>
+      <button type="button" class="danger" @click="deleteHabitFromContext(habitContext.habit)"><Trash2 :size="14" />删除习惯</button>
+    </div>
     <div v-if="organizationMenuOpen" class="clone-context-menu clone-organization-menu" role="menu" :style="{ left: `${organizationMenu.x}px`, top: `${organizationMenu.y}px` }" @pointerdown.stop @click.stop>
       <template v-if="organizationMenu.kind === 'system' && organizationMenu.item.key === 'inbox'"><button type="button" @click="editInboxFromSystemMenu"><Pencil :size="14" />编辑</button></template>
       <template v-else-if="organizationMenu.kind === 'system'"><button type="button" @click="togglePinnedObject('system', organizationMenu.item)"><Pin :size="14" />{{ isPinnedObject('system', organizationMenu.item) ? '取消置顶' : '置顶' }}</button><button type="button" @click="organizationMenu.submenu = organizationMenu.submenu === 'display' ? '' : 'display'"><Eye :size="14" />显示选项<ChevronDown :size="13" /></button><div v-if="organizationMenu.submenu === 'display'" class="clone-context-submenu"><button v-for="option in displayOptionsFor('system', organizationMenu.item)" :key="option.value" type="button" @click="setDisplayOption('system', organizationMenu.item, option.value)">{{ option.label }}<Check v-if="getDisplayOption('system', organizationMenu.item) === option.value" :size="14" /></button></div></template>
@@ -1438,6 +1445,16 @@
         </div>
       </div>
     </Dialog>
+    <HabitLogDialog
+      :open="Boolean(habitLogTarget)"
+      :habit="habitLogTarget?.habit || null"
+      :date="habitLogTarget?.date || ''"
+      :mood="habitLogTarget?.checkin?.mood || ''"
+      :note="habitLogTarget?.checkin?.note || ''"
+      :status="habitLogTarget?.checkin?.status || ''"
+      @close="habitLogTarget = null"
+      @save="saveHabitLog"
+    />
   </section>
 </template>
 
@@ -1561,6 +1578,7 @@ import { dayState, todayKey } from "../components/habits/habitUtils.js";
 // 行内日期标签是热路径：格式化器按 options 缓存，别在每次渲染里重建 Intl 实例
 import { dayLabel, timeLabel } from "../utils/dateFormat.js";
 import HabitDetailPane from "../components/habits/HabitDetailPane.vue";
+import HabitLogDialog from "../components/habits/HabitLogDialog.vue";
 import TaskRow from "../components/tasks/TaskRow.vue";
 import SearchFilterSelect from "../components/tasks/SearchFilterSelect.vue";
 import {
@@ -2287,6 +2305,9 @@ watch(() => currentViewScope(), () => {
 });
 const context = reactive({ open: false, x: 0, y: 0, task: null });
 const contextSubmenu = ref("");
+/** 习惯行右键菜单：任务页没有习惯专属的编辑面板，菜单只做今天这一天的动作 + 打开详情 */
+const habitContext = reactive({ open: false, x: 0, y: 0, habit: null });
+const habitLogTarget = ref(null);
 const activities = ref([]);
 const activityLoading = ref(false);
 const comments = ref([]);
@@ -3985,6 +4006,17 @@ function dragChecklistItem(index, event) {
   event.dataTransfer?.setData("text/plain", String(index));
   if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
 }
+/** 行内 input / button 之间移动也会触发 dragleave，只有真正离开整行才清高亮，否则指示线一直闪 */
+function leaveEditChecklistRow(event) {
+  const next = event.relatedTarget;
+  if (next && event.currentTarget.contains(next)) return;
+  checklistDropTarget.value = null;
+}
+function leaveDetailChecklistRow(event, index) {
+  const next = event.relatedTarget;
+  if (next && event.currentTarget.contains(next)) return;
+  if (detailChecklistDropTarget.value === index) detailChecklistDropTarget.value = null;
+}
 function moveChecklistItem(from, offset) {
   const to = from + offset;
   if (to < 0 || to >= draft.checklistItems.length) return;
@@ -4002,8 +4034,11 @@ function removeChecklistItem(index) {
   draft.checklistItems.splice(index, 1);
 }
 async function toggleChecklistItem(task, item) {
+  // store.update 会把新数组写回同一份响应式数据，item.completed 可能被就地改掉，先记下原值再判断要不要响
+  const wasCompleted = Boolean(item.completed);
   const checklist = (task.checklist || []).map((entry) => entry === item || entry.publicId === item.publicId ? { ...entry, completed: !entry.completed } : entry);
   const updated = await store.update(task, { checklist });
+  if (!wasCompleted) playCompleteSound(localSettings.completeSound);
   if (selectedTask.value?.publicId === task.publicId) selectedTask.value = updated;
 }
 function openContext(task, event) {
@@ -6867,11 +6902,66 @@ function habitStateLabel(habit) {
   if (state === "skip") return "已跳过";
   return "今天";
 }
+/** 今天的打卡记录（同日可能有多条历史脏数据，取最后一条） */
+function todayCheckinOf(habit) {
+  const key = todayKey();
+  return (store.habitCheckins || []).filter((row) => row.habitId === habit?.publicId && String(row.date).slice(0, 10) === key).pop() || null;
+}
+function openHabitLog(habit, checkin) {
+  if (!habit) return;
+  habitLogTarget.value = { habit, date: String(checkin?.date || todayKey()).slice(0, 10), checkin: checkin || null };
+}
 async function toggleHabitToday(habit) {
   const done = habitDone(habit);
   const isQuantity = habit.targetType === "QUANTITY";
-  await store.checkinHabit(habit, { date: todayKey(), count: done ? 0 : 1, status: done ? "SKIP" : "DONE",
+  const key = todayKey();
+  await store.checkinHabit(habit, { date: key, count: done ? 0 : 1, status: done ? "SKIP" : "DONE",
     amount: done ? 0 : (isQuantity ? Math.max(1, Number(habit.dailyTimes) || 1) : 0) });
+  if (done) return;
+  playCompleteSound(localSettings.completeSound);
+  // 习惯里开了「完成后记录日志」就在这里弹，和习惯页保持一致
+  if (habit.autoPopupLog) openHabitLog(habit, todayCheckinOf(habit));
+}
+function openHabitContext(habit, event) {
+  if (!habit || !event) return;
+  habitContext.habit = habit;
+  habitContext.x = Math.max(8, Math.min(event.clientX, window.innerWidth - 250));
+  habitContext.y = Math.max(8, Math.min(event.clientY, window.innerHeight - 300));
+  habitContext.open = true;
+}
+function closeHabitContext() { habitContext.open = false; }
+function toggleHabitFromContext(habit) { closeHabitContext(); if (habit) void toggleHabitToday(habit); }
+function skipHabitFromContext(habit) {
+  closeHabitContext();
+  if (habit) void store.checkinHabit(habit, { date: todayKey(), status: "SKIP", count: 0, amount: 0 });
+}
+async function openHabitLogForContext(habit) {
+  closeHabitContext();
+  if (!habit) return;
+  const key = todayKey();
+  let current = todayCheckinOf(habit);
+  if (!current || current.status === "CLEAR") {
+    await store.checkinHabit(habit, { date: key, status: "DONE", count: 1,
+      amount: habit.targetType === "QUANTITY" ? Math.max(1, Number(habit.dailyTimes) || 1) : 0 });
+    current = todayCheckinOf(habit);
+  }
+  openHabitLog(habit, current);
+}
+async function saveHabitLog({ mood, note }) {
+  const target = habitLogTarget.value;
+  habitLogTarget.value = null;
+  if (!target) return;
+  const current = todayCheckinOf(target.habit) || target.checkin;
+  if (!current) return;
+  await store.saveEfficiency("habit-checkin", { ...current, mood, note });
+  await store.syncNow().catch(() => {});
+}
+async function deleteHabitFromContext(habit) {
+  closeHabitContext();
+  if (!habit) return;
+  if (!window.confirm(`删除习惯「${habit.name}」？打卡记录会一起消失。`)) return;
+  await store.deleteHabit(habit);
+  if (habitPaneId.value === habit.publicId) closeHabitPane();
 }
 async function batchComplete() {
   await applyBatch("COMPLETE");
@@ -9227,7 +9317,7 @@ const SidebarSection = {
 .clone-efficiency-row strong { min-width: 0; flex: 1; overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .clone-efficiency-icon { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: var(--accent-soft); font-size: 13px; }
 .clone-efficiency-meta { color: var(--muted); font-size: 11px; }
-.clone-efficiency-check { display: grid; width: 21px; height: 21px; place-items: center; border: 1.5px solid var(--line2); border-radius: 6px; background: transparent; color: var(--accent); cursor: pointer; }
+.clone-efficiency-check { display: grid; width: 21px; height: 21px; min-width: 21px; min-height: 21px; flex: none; place-items: center; border: 1.5px solid var(--line2); border-radius: 6px; background: transparent; color: var(--accent); cursor: pointer; }
 .clone-efficiency-check.checked { border-color: var(--accent); background: var(--accent); color: var(--accent-contrast, #fff); }
 .clone-efficiency-check > span { font-size: 12px; line-height: 1; }
 .clone-efficiency-check.is-missed { border-color: color-mix(in srgb, #e34d59 42%, var(--line2)); color: #e34d59; }
@@ -10027,8 +10117,10 @@ const SidebarSection = {
 .clone-checklist-draft { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 34px; }
 .clone-checklist-draft input { min-width: 0; padding: 4px 0; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 13px; outline: none; }
 .clone-checklist-draft .is-placeholder { opacity: .25; }
-.clone-checklist-row.drop-target { border-top: 2px solid var(--accent); }
+/* 拖拽高亮只用 box-shadow（不占位）；用 border-top 会把行往下推 2px，拖拽时整列跳动 */
 .clone-checklist-row .clone-checklist-grip { cursor: grab; touch-action: none; }
+/* 触屏没有 hover，拖拽手柄常显，否则移动端无法排序 */
+@media (max-width: 900px), (hover: none) { .clone-checklist-row .clone-checklist-grip { opacity: .55; } }
 .clone-checklist-row .clone-checklist-grip:active { cursor: grabbing; }
 .clone-checklist-row input[type="checkbox"] { flex: 0 0 auto; width: 15px; min-height: 15px; margin: 0; accent-color: var(--accent); }
 .clone-checklist-row input[type="text"], .clone-checklist-row > input:not([type]) { flex: 1; min-width: 0; min-height: 30px; padding: 4px 0; border: 0; background: transparent; }

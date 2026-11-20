@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -113,7 +114,7 @@ class TaskRecurrenceReminderIntegrationTest extends MySqlIntegrationTestSupport 
         assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM task_sync_oplog WHERE user_id=? AND entity_id=?",
                 Long.class, userId, nextId) > oplogBefore, "补齐检查项后要写同步日志");
 
-        // 下一实例已有检查项时不再覆盖，避免冲掉用户手工加的内容
+        // 下一实例里用户手工加过一条：不覆盖、不挪位，但源里多出来的仍要补齐
         jdbc.update("INSERT INTO task_checklist_item(public_id,user_id,task_id,title,completed,sort_order) " +
                 "SELECT UUID(),?,id,'手工加的一条',FALSE,9 FROM task WHERE public_id=?", userId, nextId);
         long sourceRevision = jdbc.queryForObject("SELECT revision FROM task WHERE public_id=?", Long.class, task.publicId());
@@ -121,7 +122,37 @@ class TaskRecurrenceReminderIntegrationTest extends MySqlIntegrationTestSupport 
                 task.dueAt(), false, "UTC", null, null, null,
                 List.of(new TaskModels.ChecklistCommand(null, "只留一条", false, 0)),
                 "FREQ=DAILY", "DUE_DATE"), String.valueOf(sourceRevision));
-        assertEquals(List.of("打卡", "喝水", "手工加的一条"), checklistTitles(nextId));
+        assertEquals(List.of("打卡", "喝水", "手工加的一条", "只留一条"), checklistTitles(nextId));
+    }
+
+    /**
+     * 线上实际场景：下一实例在凌晨按「当时的源」生成，源里只有 1 条；
+     * 用户当天把源加到 7 条，下一实例必须补齐成 7 条，而不是永远停在 1 条。
+     */
+    @Test
+    void checklistGrownToSevenReachesPreGeneratedNextInstance() {
+        long userId = createUser();
+        CurrentUserResolver current = current(userId);
+        TaskService tasks = new TaskService(jdbc, current, new TaskChangeLog(jdbc,
+                new ObjectMapper().findAndRegisterModules()));
+        var task = tasks.create(new TaskCommand(null, "每日晨间清单", "", "NONE", null,
+                Instant.now().minusSeconds(60).toString(), false, "UTC", null, null, null, null,
+                "FREQ=DAILY", "DUE_DATE"), "repeat-checklist-grow");
+        String nextId = insertPreGeneratedNext(task.publicId(), task.seriesId(), "FREQ=DAILY", task.plannedDueAt());
+        // 预生成时源只有第一条
+        jdbc.update("INSERT INTO task_checklist_item(public_id,user_id,task_id,title,completed,sort_order) " +
+                "SELECT UUID(),?,id,'第一步',FALSE,0 FROM task WHERE public_id=?", userId, nextId);
+
+        List<TaskModels.ChecklistCommand> seven = new ArrayList<>();
+        for (int i = 1; i <= 7; i++) {
+            seven.add(new TaskModels.ChecklistCommand(null, "第" + "一二三四五六七".charAt(i - 1) + "步", false, i - 1));
+        }
+        tasks.update(task.publicId(), new TaskCommand(null, "每日晨间清单", "", "NONE", null,
+                task.dueAt(), false, "UTC", null, null, null, seven, "FREQ=DAILY", "DUE_DATE"),
+                String.valueOf(task.revision()));
+
+        assertEquals(List.of("第一步", "第二步", "第三步", "第四步", "第五步", "第六步", "第七步"),
+                checklistTitles(nextId));
     }
 
     /**

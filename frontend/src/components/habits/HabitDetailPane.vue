@@ -68,6 +68,8 @@ import HabitSkipDialog from './HabitSkipDialog.vue'
 import { dayState, findCheckin, targetAmount, todayKey } from './habitUtils.js'
 import { useTasksStore } from '../../stores/tasks.js'
 import { uuid } from '../../utils/uuid.js'
+import { playCompleteSound } from '../../utils/completeSound.js'
+import { useSettings } from '../settings/useSettings.js'
 
 const props = defineProps({
   habit: { type: Object, required: true }
@@ -87,6 +89,7 @@ const logTarget = ref(null)
 const skipTarget = ref(null)
 const dayMenu = ref(null)
 const dayMenuEl = ref(null)
+const { settings: appSettings } = useSettings()
 
 async function writeCheckin(habit, key, existing, patch) {
   await store.saveEfficiency('habit-checkin', {
@@ -116,6 +119,7 @@ async function toggleDay(habit, key) {
   }
   if (habit.targetType !== 'QUANTITY') {
     const saved = await writeCheckin(habit, key, existing, { status: 'DONE', count: 1, amount: 0 })
+    playCompleteSound(appSettings.completeSound)
     if (habit.autoPopupLog) openLog(habit, saved || { ...(existing || {}), date: key })
     return
   }
@@ -128,6 +132,7 @@ async function toggleDay(habit, key) {
   }
   const next = mode === 'ALL' ? target : Math.min(target, current + Math.max(1, Number(habit.perAmount) || 1))
   const saved = await writeCheckin(habit, key, existing, { status: 'DONE', count: Number(existing?.count || 0) + 1, amount: next })
+  if (next >= target) playCompleteSound(appSettings.completeSound)
   if (next >= target && habit.autoPopupLog) openLog(habit, saved || { ...(existing || {}), date: key })
 }
 
@@ -141,6 +146,7 @@ async function confirmManualCheck(amount) {
     count: Number(prompt.existing?.count || 0) + 1,
     amount: next
   })
+  if (next >= prompt.target) playCompleteSound(appSettings.completeSound)
   if (next >= prompt.target && prompt.habit.autoPopupLog) openLog(prompt.habit, saved || { ...(prompt.existing || {}), date: prompt.date })
 }
 

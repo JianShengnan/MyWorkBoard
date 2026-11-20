@@ -44,6 +44,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -1442,15 +1443,15 @@ public class TaskService {
     }
 
     /**
-     * 把源实例的检查项补给「还没有检查项」的下一实例。
+     * 把源实例的检查项同步到「下一实例」。
      *
      * <p>重复任务的下一实例并不是等用户完成才生成的：源实例到期当天凌晨，
      * {@code scanDueRecurrences} 就会把下一实例建出来（这样「明天」的视图里能提前看到）。
-     * 但用户当天往当前实例里新增的检查项那时还不存在，于是生成出来的下一实例是空的；
-     * 等用户真的完成当前实例时，下一实例早已存在，插入被唯一键挡回，检查项再也补不上。
+     * 那时源实例可能只有 1 个检查项，用户当天又加了 6 个；旧实现只在「下一实例一条检查项都没有」时复制，
+     * 于是下一实例永远停在 1 个。
      *
-     * <p>所以检查项一旦变化（以及完成时命中已存在的下一实例），就把内容同步过去。
-     * 下一实例已经有检查项时不动它——用户可能已经手工改过，覆盖会丢数据。
+     * <p>现在按标题补齐：源里有、目标里没有的补到末尾。目标里用户手工加过或改过的项不删也不挪，
+     * 覆盖或重排都可能丢掉用户当天的进度。
      */
     private void propagateChecklistToNextInstance(long userId, String sourcePublicId, String seriesId, Integer sequence) {
         if (seriesId == null || sequence == null) return;
@@ -1459,20 +1460,41 @@ public class TaskService {
                 (row, rowNum) -> row.getLong(1), userId, seriesId, sequence);
         if (next.isEmpty()) return;
         long nextId = next.get(0);
-        Long existing = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM task_checklist_item WHERE task_id=? AND deleted=FALSE", Long.class, nextId);
-        if (existing != null && existing > 0) return;
         Long sourceId = jdbcTemplate.queryForObject("SELECT id FROM task WHERE public_id=? AND user_id=?", Long.class,
                 sourcePublicId, userId);
-        int copied = jdbcTemplate.update("INSERT INTO task_checklist_item(public_id,user_id,task_id,title,completed,sort_order) " +
-                        "SELECT UUID(),user_id,?,title,FALSE,sort_order FROM task_checklist_item WHERE task_id=? AND deleted=FALSE",
-                nextId, sourceId);
-        if (copied == 0) return;
+        if (sourceId == null) return;
+
+        List<String> sourceTitles = jdbcTemplate.query(
+                "SELECT title FROM task_checklist_item WHERE task_id=? AND deleted=FALSE ORDER BY sort_order,id",
+                (row, rowNum) -> row.getString(1), sourceId);
+        if (sourceTitles.isEmpty()) return;
+
+        Set<String> existingTitles = new HashSet<>(jdbcTemplate.query(
+                "SELECT title FROM task_checklist_item WHERE task_id=? AND deleted=FALSE",
+                (row, rowNum) -> normalizeChecklistTitle(row.getString(1)), nextId));
+        Integer maxSort = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(MAX(sort_order),-1) FROM task_checklist_item WHERE task_id=? AND deleted=FALSE",
+                Integer.class, nextId);
+        int position = (maxSort == null ? -1 : maxSort) + 1;
+
+        int added = 0;
+        for (String title : sourceTitles) {
+            String key = normalizeChecklistTitle(title);
+            if (key.isEmpty() || !existingTitles.add(key)) continue;
+            jdbcTemplate.update("INSERT INTO task_checklist_item(public_id,user_id,task_id,title,completed,sort_order) " +
+                    "VALUES(UUID(),?,?,?,FALSE,?)", userId, nextId, title, position++);
+            added++;
+        }
+        if (added == 0) return;
         // 下一实例的内容变了，必须推高 revision 并写 oplog，否则各端拉不到这条更新
         jdbcTemplate.update("UPDATE task SET revision=revision+1 WHERE id=?", nextId);
         String nextPublicId = jdbcTemplate.queryForObject("SELECT public_id FROM task WHERE id=?", String.class, nextId);
         changeLog.append(userId, UUID.randomUUID().toString(), nextPublicId, "UPSERT",
                 syncEntity(taskForUser(userId, nextPublicId), false));
+    }
+
+    private static String normalizeChecklistTitle(String title) {
+        return title == null ? "" : title.trim().toLowerCase(Locale.ROOT);
     }
 
     @Scheduled(fixedDelay = 30000, initialDelay = 10000)

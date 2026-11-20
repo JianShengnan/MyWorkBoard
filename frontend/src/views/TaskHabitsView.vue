@@ -219,6 +219,8 @@ import {
 import { loadCustomGroups } from '../components/habits/habitGroups.js'
 import { useExclusivePanels } from '../utils/exclusivePanels.js'
 import { uuid } from '../utils/uuid.js'
+import { playCompleteSound } from '../utils/completeSound.js'
+import { useSettings } from '../components/settings/useSettings.js'
 import { useTasksStore } from '../stores/tasks.js'
 
 const router = useRouter()
@@ -262,6 +264,8 @@ const checkSettingValue = ref(localStorage.getItem(CHECK_SETTING_KEY) !== 'false
 const logMuted = ref(localStorage.getItem(LOG_MUTED_KEY) === 'true')
 const checkPrompt = ref(null)
 const logTarget = ref(null)
+/** 完成提示音跟任务完成共用同一个设置项 */
+const { settings: appSettings } = useSettings()
 const skipTarget = ref(null)
 const context = ref(null)
 const contextSub = ref('')
@@ -397,6 +401,7 @@ async function toggleDay(habit, key) {
   // 普通习惯：一次点击即完成
   if (habit.targetType !== 'QUANTITY') {
     const saved = await writeCheckin(habit, key, existing, { status: 'DONE', count: 1, amount: 0 })
+    playCompleteSound(appSettings.completeSound)
     if (habit.autoPopupLog) openLog(habit, saved || { ...(existing || {}), date: key })
     return
   }
@@ -417,6 +422,7 @@ async function toggleDay(habit, key) {
     count: Number(existing?.count || 0) + 1,
     amount: next
   })
+  if (next >= target) playCompleteSound(appSettings.completeSound)
   if (next >= target && habit.autoPopupLog) openLog(habit, saved || { ...(existing || {}), date: key })
 }
 
@@ -431,6 +437,7 @@ async function confirmManualCheck(amount) {
     count: Number(prompt.existing?.count || 0) + 1,
     amount: next
   })
+  if (next >= target) playCompleteSound(appSettings.completeSound)
   if (next >= target && prompt.habit.autoPopupLog) openLog(prompt.habit, saved || { ...(prompt.existing || {}), date: prompt.date })
 }
 
