@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { taskDetailPresentation } from "./taskDetailPresentation.js";
+import { TASK_DETAIL_HISTORY_MARK, taskDetailHistoryAction, taskDetailPresentation } from "./taskDetailPresentation.js";
 
 const base = { mobile: true, workspaceView: "LIST", hasTask: false, editorOpen: false, batchCount: 0, listActivityOpen: false, hasHabit: false };
 const view = await readFile(new URL("./TaskWorkspaceView.vue", import.meta.url), "utf8");
@@ -73,4 +73,39 @@ test("所有习惯Teleport子弹层层级统一且高于手机习惯详情", asy
     assert.match(source, /<Teleport to="body">/);
     assert.match(source, /role="dialog" aria-modal="true"/);
   }
+});
+
+test("手机打开整屏详情压一条历史条目，桌面永远不压", () => {
+  const open = { mobile: true, detailOpen: true, entryActive: false, source: "open" };
+  assert.deepEqual(taskDetailHistoryAction(open), { pushEntry: true, popEntry: false, closeDetail: false });
+  assert.deepEqual(taskDetailHistoryAction({ ...open, detailOpen: false }), { pushEntry: false, popEntry: false, closeDetail: false });
+  assert.deepEqual(taskDetailHistoryAction({ ...open, entryActive: true }), { pushEntry: false, popEntry: false, closeDetail: false });
+  assert.deepEqual(taskDetailHistoryAction({ ...open, mobile: false }), { pushEntry: false, popEntry: false, closeDetail: false });
+});
+
+test("返回事件在详情打开时只关详情，详情已关则不动页面", () => {
+  assert.deepEqual(taskDetailHistoryAction({ mobile: true, detailOpen: true, entryActive: true, source: "popstate" }), { pushEntry: false, popEntry: false, closeDetail: true });
+  assert.deepEqual(taskDetailHistoryAction({ mobile: true, detailOpen: false, entryActive: true, source: "popstate" }), { pushEntry: false, popEntry: false, closeDetail: false });
+  assert.deepEqual(taskDetailHistoryAction({ mobile: false, detailOpen: true, entryActive: true, source: "popstate" }), { pushEntry: false, popEntry: false, closeDetail: false });
+  // 没压过条目（entryActive=false）时完全没有我们的事
+  assert.deepEqual(taskDetailHistoryAction({ mobile: true, detailOpen: true, entryActive: false, source: "popstate" }), { pushEntry: false, popEntry: false, closeDetail: false });
+});
+
+test("主动关闭只在压过条目时出栈，避免残留幽灵历史", () => {
+  assert.deepEqual(taskDetailHistoryAction({ mobile: true, detailOpen: true, entryActive: true, source: "dismiss" }), { pushEntry: false, popEntry: true, closeDetail: false });
+  assert.deepEqual(taskDetailHistoryAction({ mobile: true, detailOpen: true, entryActive: false, source: "dismiss" }), { pushEntry: false, popEntry: false, closeDetail: false });
+  assert.deepEqual(taskDetailHistoryAction({ mobile: false, detailOpen: true, entryActive: true, source: "dismiss" }), { pushEntry: false, popEntry: false, closeDetail: false });
+  assert.equal(typeof TASK_DETAIL_HISTORY_MARK, "string");
+  assert.ok(TASK_DETAIL_HISTORY_MARK.length > 0);
+});
+
+test("详情工作区把手机返回接到历史条目上，关闭与卸载都清理干净", () => {
+  assert.match(view, /window\.history\.pushState\(\{ \.\.\.\(window\.history\.state \|\| \{\}\), \[TASK_DETAIL_HISTORY_MARK\]: true \}, ""\)/);
+  assert.match(view, /window\.addEventListener\("popstate", onDetailHistoryPopState\)/);
+  assert.match(view, /window\.removeEventListener\("popstate", onDetailHistoryPopState\)/);
+  assert.match(view, /if \(action\.closeDetail\) closeDetail\(\)/);
+  assert.match(view, /watch\(\s*\(\) => detailPresentation\.value\.mobileTaskDetail,\s*\(open\) => \{\s*if \(open\) armDetailHistory\(\);\s*else releaseDetailHistory\(\);/);
+  // 主动关闭/删任务等所有出口都经过 closeDetail，再由 detailPresentation 的 watch 统一出栈
+  assert.match(view, /function closeDetail\(\) \{[\s\S]*?\n\}/);
+  assert.match(view, /detailHistoryArmed = false;\s+detailHistoryReleasing = false;\s+detailHistoryReopen = false;/);
 });

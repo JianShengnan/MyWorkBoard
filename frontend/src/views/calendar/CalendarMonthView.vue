@@ -108,6 +108,7 @@ import { WEEKDAY_LABELS, isoWeekNumber, toDateKey } from './calendarRange.js'
 import { tintStyle } from './calendarColors.js'
 import { packWeekLanes, visibleRowCount } from './calendarLanes.js'
 import { createCalendarGesture } from './calendarGesture.js'
+import { MOBILE_COMPACT_ROWS, compactEventRows } from './calendarMonthCompact.js'
 
 const props = defineProps({
   weeks: { type: Array, required: true },
@@ -119,7 +120,9 @@ const props = defineProps({
   muteOutsideMonth: { type: Boolean, default: true },
   lunar: { type: Object, default: () => ({}) },
   holidays: { type: Object, default: () => ({}) },
-  showWeekNumber: { type: Boolean, default: true }
+  showWeekNumber: { type: Boolean, default: true },
+  // 手机紧凑模式：布局交给 @media (max-width:1023px)，这里只负责把格内事件压到 1~2 条
+  mobile: { type: Boolean, default: false }
 })
 
 const dowLabels = computed(() => (props.weeks[0] || []).map(day => WEEKDAY_LABELS[(day.getDay() + 6) % 7]))
@@ -192,7 +195,11 @@ function isInRange(day) {
 const LANE_ROW_HEIGHT = 20
 
 // 跨日泳道行数必须落在格子高度内，否则会压到下一周的日期上；被裁的用「还有 N 项」提示
-const laneBudget = computed(() => Math.max(1, Math.floor((props.cellHeight - 22 - 10) / LANE_ROW_HEIGHT)))
+// 手机格子矮，最多留 1 行泳道 + 1 行「还有 N 项」，剩余空间给事件
+const laneBudget = computed(() => {
+  const fit = Math.max(1, Math.floor((props.cellHeight - 22 - 10) / LANE_ROW_HEIGHT))
+  return props.mobile ? Math.min(1, fit) : fit
+})
 
 const weekViews = computed(() => props.weeks.map(week => {
   const packed = packWeekLanes(week, props.byDay)
@@ -229,16 +236,20 @@ function eventsOf(day, index) {
   return [...bucket.allDay.filter(item => !laneIds.has(item.id)), ...bucket.timed]
 }
 
+function dayLimit(index) {
+  const fit = weekViews.value[index]?.limit ?? 4
+  // 手机格内最多 2 行：1 条事件 + 「+N」，或 2 条事件
+  return props.mobile ? Math.min(fit, MOBILE_COMPACT_ROWS) : fit
+}
+
 function visibleEvents(index, day) {
   const items = eventsOf(day, index)
-  const limit = weekViews.value[index]?.limit ?? 4
-  return items.length > limit ? items.slice(0, limit - 1) : items
+  return items.slice(0, compactEventRows(items.length, dayLimit(index)).visible)
 }
 
 function hiddenCount(index, day) {
   const total = eventsOf(day, index).length
-  const limit = weekViews.value[index]?.limit ?? 4
-  return total > limit ? total - (limit - 1) : 0
+  return compactEventRows(total, dayLimit(index)).hidden
 }
 
 function subLabel(day) {
@@ -267,9 +278,6 @@ function eventTitle(event) {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
-}
-@media (max-width: 1023px) {
-  .cal-month { min-width: 560px; }
 }
 .cal-month-dow {
   display: grid;
@@ -530,5 +538,82 @@ function eventTitle(event) {
 .cal-event-more:hover {
   background: var(--paper);
   color: var(--ink);
+}
+/* 手机紧凑月历：7 列等分铺满屏宽、不横向滚动；桌面（>1023）的列宽与信息密度保持原样。
+   放在基础规则之后，避免同优先级被后面的声明覆盖。 */
+@media (max-width: 1023px) {
+  .cal-month {
+    min-width: 0;
+    width: 100%;
+  }
+  .cal-month-dow,
+  .cal-month-body.is-no-wn .cal-week {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+  .cal-month-dow {
+    font-size: 10.5px;
+  }
+  .cal-month-dow > span:not(.cal-week-gutter) {
+    padding: 5px 0;
+  }
+  /* 周数栏在 390px 上要吃掉 36px，手机隐藏，7 天等分 */
+  .cal-week {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+  .cal-week-gutter {
+    display: none;
+  }
+  .cal-day {
+    padding: 2px 2px 1px;
+  }
+  .cal-day-head {
+    height: 20px;
+    padding: 0 1px 1px;
+  }
+  .cal-day-num {
+    font-size: 13px;
+  }
+  .cal-day.today .cal-day-num {
+    width: 20px;
+    height: 20px;
+  }
+  /* 农历、节假日与「今天」文字让位给日期和事件 */
+  .cal-day-sub,
+  .cal-day-today {
+    display: none;
+  }
+  .cal-day-events {
+    gap: 1px;
+  }
+  .cal-event {
+    height: 16px;
+    gap: 3px;
+    padding: 0 3px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+  .cal-ev-dot {
+    width: 6px;
+    height: 6px;
+  }
+  .cal-ev-time,
+  .cal-ev-extra {
+    display: none;
+  }
+  .cal-event-more {
+    height: 14px;
+    padding: 0 2px;
+    font-size: 9px;
+  }
+  .cal-lanes {
+    top: 20px;
+    left: 0;
+  }
+  .cal-lane {
+    height: 16px;
+    margin: 0 2px;
+    padding: 0 3px;
+    font-size: 9.5px;
+  }
 }
 </style>

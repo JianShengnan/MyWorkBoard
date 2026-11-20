@@ -133,6 +133,7 @@
           :lunar="calendarSettings.showLunar ? lunarLabels : {}"
           :holidays="calendarSettings.showHoliday ? holidayMap : {}"
           :show-week-number="calendarSettings.showWeekNumber"
+          :mobile="mobile"
           @select-day="selectDay"
           @open-event="openEvent"
           @select-range="createSpan"
@@ -371,6 +372,8 @@ import { diffDays, fromDateKey } from './calendar/calendarRange.js'
 import { formatDuration, spanToInstants } from './calendar/calendarDrag.js'
 import { mergedColorSettings, tintStyle } from './calendar/calendarColors.js'
 import { countActiveFilters, filterBadgeText, isMobileWidth, reduceFilterDrawer } from './calendar/calendarMobile.js'
+import { mobileCellHeight } from './calendar/calendarMonthCompact.js'
+import { mergeDevicePreferences, preferenceDevice, resolveDevicePreferences } from './calendar/calendarPreferences.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -742,11 +745,26 @@ function subLabel(day) {
 }
 
 const preferenceKey = computed(() => `calendar_view_v1:${appStore.authUser?.id || 'local'}`)
+const currentDevice = () => preferenceDevice(mobile.value)
 
+function readStoredPreferences() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(preferenceKey.value) || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/** 只把当前设备的 view/spans 写进 devices[device]，另一个设备条目原样保留 */
 function savePreferences() {
   try {
+    const payload = mergeDevicePreferences(readStoredPreferences(), currentDevice(), {
+      view: view.value, spans: { ...spans }
+    })
     localStorage.setItem(preferenceKey.value, JSON.stringify({
-      view: view.value, spans: { ...spans }, colorSettings: { ...colorSettings }, scope: scope.value,
+      ...payload,
+      colorSettings: { ...colorSettings }, scope: scope.value,
       timePrefs: { ...timePrefs },
       layers: { ...calendarLayers },
       planPanel: { groupBy: planPanel.groupBy, undated: planPanel.undated, overdue: planPanel.overdue, hideNotes: planPanel.hideNotes, hideHierarchy: planPanel.hideHierarchy }
@@ -754,14 +772,17 @@ function savePreferences() {
   } catch { /* 忽略存储配额错误 */ }
 }
 
+/** 按当前断点恢复 view/spans：手机默认 month，桌面沿用原默认并迁移旧版顶层值 */
+function applyDevicePreferences(stored) {
+  const prefs = resolveDevicePreferences(stored, currentDevice())
+  view.value = prefs.view
+  Object.assign(spans, prefs.spans)
+}
+
 function readPreferences() {
   try {
-    const stored = JSON.parse(localStorage.getItem(preferenceKey.value) || '{}')
-    if (VIEW_KEYS.includes(stored.view) || SPAN_KEYS.includes(stored.view)) view.value = stored.view
-    if (stored.spans) {
-      spans.multiDay = clampSpan('multiDay', stored.spans.multiDay)
-      spans.multiWeek = clampSpan('multiWeek', stored.spans.multiWeek)
-    }
+    const stored = readStoredPreferences()
+    applyDevicePreferences(stored)
     Object.assign(colorSettings, mergedColorSettings(stored.colorSettings))
     if (stored.timePrefs) {
       Object.assign(timePrefs, {
@@ -873,7 +894,13 @@ async function loadFilters() {
 
 function measure() {
   if (typeof window === 'undefined') return
-  mobile.value = isMobileWidth(window.innerWidth)
+  const nextMobile = isMobileWidth(window.innerWidth)
+  if (nextMobile !== mobile.value) {
+    // 跨断点：先把当前视图写回原设备，再恢复目标设备的偏好，避免把手机视图写到桌面条目上
+    savePreferences()
+    mobile.value = nextMobile
+    applyDevicePreferences(readStoredPreferences())
+  }
   const bucket = widthBucket(window.innerWidth)
   // 断点变化时清掉手动开关，避免“手机上被强制展开”的遗留状态
   if (bucket !== currentBucket) {
@@ -885,8 +912,10 @@ function measure() {
   if (!body) return
   if (view.value === 'month' || view.value === 'multiWeek') {
     const rows = range.value.weeks.length || 5
-    const available = (body.clientHeight - 28) / rows
-    cellHeight.value = Math.max(CAL_ROW_MIN_HEIGHT, Math.round(available))
+    // 手机按可用高度等分且允许更矮的格子；桌面保持原来的 96px 下限
+    cellHeight.value = mobile.value
+      ? mobileCellHeight(body.clientHeight, rows)
+      : Math.max(CAL_ROW_MIN_HEIGHT, Math.round((body.clientHeight - 28) / rows))
   }
 }
 
@@ -1328,15 +1357,15 @@ onBeforeUnmount(() => {
 .cal-shell {
   position: relative;
   display: flex;
-  height: calc(100dvh - 88px);
+  /* 顶栏/底栏高度由 App.vue 实测写入（隐藏时是 0），不再按断点各自猜 88/64 */
+  height: calc(100dvh - var(--app-topbar-h, 64px) - var(--app-bottombar-h, 0px));
   margin: 0;
   background: var(--card);
   color: var(--ink);
   overflow: hidden;
 }
-.cal-shell.is-task-route {
-  height: 100dvh;
-}
+/* 任务域里的日历（/tasks/calendar）顶栏被隐藏时 --app-topbar-h 实测为 0，
+   公式自然退化成 100dvh，不需要再单独写 is-task-route 的高度 */
 .cal-main {
   display: flex;
   flex: 1 1 auto;
@@ -1994,9 +2023,9 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1023px) {
-  .cal-shell,
-  .cal-shell.is-task-route {
-    height: calc(100dvh - 64px);
+  /* 手机高度同样走实测变量：日历路由没有底栏（0），任务域日历有底栏时也不会被压住 */
+  .cal-shell {
+    height: calc(100dvh - var(--app-topbar-h, 64px) - var(--app-bottombar-h, 0px));
   }
   /* 手机工具栏改两行：
      第一行 [日期标题][上一段/今天/下一段]，第二行 [筛选][视图][...][新增][更多]。

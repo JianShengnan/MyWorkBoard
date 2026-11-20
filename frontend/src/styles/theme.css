@@ -900,6 +900,10 @@ html.dark .ui-button.variant-ink:hover:not(:disabled) { background: color-mix(in
   --workspace-peach: #ffe6ca;
   --workspace-radius: 20px;
   --workspace-gap: 20px;
+  /* 应用外壳实测高度：App.vue 用 ResizeObserver 写入真实像素（含 safe-area，底栏不存在时为 0）。
+     这里只给 JS 未执行时的兜底，使用处仍写成 var(--app-topbar-h, 64px) 形式。 */
+  --app-topbar-h: 64px;
+  --app-bottombar-h: 56px;
 }
 
 html:not(.dark) body { background: var(--workspace-bg); }

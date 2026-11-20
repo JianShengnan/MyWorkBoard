@@ -1567,7 +1567,7 @@ import { organizationIconCategories, searchOrganizationIcons } from "./taskOrgan
 import { getListDropPlacement, moveItem, reorderListDrop } from "./taskSidebar.js";
 import { groupTaskItems, sortTaskItems, taskGroupDropPatch } from "./taskList.js";
 import { buildTaskListGroups } from "./taskWorkspaceTree.js";
-import { taskDetailPresentation } from "./taskDetailPresentation.js";
+import { TASK_DETAIL_HISTORY_MARK, taskDetailHistoryAction, taskDetailPresentation } from "./taskDetailPresentation.js";
 import { moveChecklistItemBy, moveChecklistItem as reorderChecklistItems } from "./taskChecklist.js";
 import { matchesFilterRules, serializeFilterRules } from "./taskFilterRules.js";
 import { advancedFilterConditionsFromRules, advancedFilterConditionsValid, buildAdvancedFilterRules } from "./taskAdvancedFilter.js";
@@ -2874,6 +2874,80 @@ const detailPaneFloating = computed(() => {
   if (selectedIds.size || listActivityOpen.value || habitPaneHabit.value) return false;
   return isNarrowDetail.value && !isMobileSidebar.value;
 });
+// 手机整屏任务详情与浏览器返回：详情打开时压一条同 URL 的历史条目，返回手势/返回键只关详情、
+// 不离开任务页；关闭（返回按钮 / Esc / 切视图 / 卸载）时再把这条收掉，否则会留下
+// 「按一次返回像没反应」的幽灵条目。桌面不压栈，行为不变。
+let detailHistoryArmed = false; // 我们压的条目已生效且还没被消费
+let detailHistoryReleasing = false; // 已发起 history.back()，等 popstate 落地
+let detailHistoryReopen = false; // 释放期间详情又开了，落地后补压一条
+let detailHistoryGhostSkips = 0; // 幽灵条目连续跳过次数，防止极端情况下死循环
+
+function detailHistoryEntryIsCurrent() {
+  try {
+    return Boolean(window.history.state?.[TASK_DETAIL_HISTORY_MARK]);
+  } catch {
+    return false;
+  }
+}
+function armDetailHistory() {
+  const action = taskDetailHistoryAction({ mobile: isMobileSidebar.value, detailOpen: detailPresentation.value.mobileTaskDetail, entryActive: detailHistoryArmed, source: "open" });
+  if (!action.pushEntry) return;
+  if (detailHistoryReleasing) {
+    detailHistoryReopen = true;
+    return;
+  }
+  try {
+    window.history.pushState({ ...(window.history.state || {}), [TASK_DETAIL_HISTORY_MARK]: true }, "");
+    detailHistoryArmed = true;
+  } catch {
+    detailHistoryArmed = false;
+  }
+}
+function releaseDetailHistory() {
+  const action = taskDetailHistoryAction({ mobile: isMobileSidebar.value, detailOpen: false, entryActive: detailHistoryArmed, source: "dismiss" });
+  if (!action.popEntry) return;
+  // 条目已经不在栈顶（用户先切了路由、新条目压在它上面）时 back() 会退回上一页，只能清标记；
+  // 剩下那条等下次 popstate 落到它上面时按幽灵条目跳过。
+  if (!detailHistoryEntryIsCurrent()) {
+    detailHistoryArmed = false;
+    return;
+  }
+  detailHistoryArmed = false;
+  detailHistoryReleasing = true;
+  window.history.back();
+}
+function onDetailHistoryPopState(event) {
+  if (detailHistoryReleasing) {
+    detailHistoryReleasing = false;
+    detailHistoryGhostSkips = 0;
+    const reopen = detailHistoryReopen;
+    detailHistoryReopen = false;
+    if (reopen && detailPresentation.value.mobileTaskDetail) armDetailHistory();
+    return;
+  }
+  const landedOnDetailEntry = Boolean(event?.state?.[TASK_DETAIL_HISTORY_MARK]);
+  if (!detailHistoryArmed) {
+    // 详情已被别处关掉，我们压的条目成了幽灵：再退一步回到真实条目，别让用户觉得返回没反应
+    if (landedOnDetailEntry && detailHistoryGhostSkips < 3) {
+      detailHistoryGhostSkips += 1;
+      window.history.back();
+      return;
+    }
+    detailHistoryGhostSkips = 0;
+    return;
+  }
+  detailHistoryArmed = false;
+  detailHistoryGhostSkips = 0;
+  const action = taskDetailHistoryAction({ mobile: isMobileSidebar.value, detailOpen: detailPresentation.value.mobileTaskDetail, entryActive: true, source: "popstate" });
+  if (action.closeDetail) closeDetail();
+}
+watch(
+  () => detailPresentation.value.mobileTaskDetail,
+  (open) => {
+    if (open) armDetailHistory();
+    else releaseDetailHistory();
+  },
+);
 // 搜索结果里点某条任务（弹窗里点进来）时直接打开它的详情
 watch(
   () => route.query.open,
@@ -8089,6 +8163,7 @@ onMounted(() => {
   window.addEventListener("scroll", refreshAttributePopoverLayout, { passive: true, capture: true });
   window.addEventListener("scroll", loadMoreCompletedOnScroll, { passive: true });
   window.addEventListener("keydown", onKeydown);
+  window.addEventListener("popstate", onDetailHistoryPopState);
   window.addEventListener("task:manual-sync", handleManualSync);
   window.matchMedia("(max-width: 900px)").addEventListener("change", handleSidebarViewportChange);
   window.matchMedia("(max-width: 1279px)").addEventListener("change", handleNarrowDetailChange);
@@ -8120,6 +8195,11 @@ onBeforeUnmount(() => {
   window.removeEventListener("scroll", refreshAttributePopoverLayout, true);
   window.removeEventListener("scroll", loadMoreCompletedOnScroll);
   window.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("popstate", onDetailHistoryPopState);
+  // 卸载时只清状态，不再动 history：跳转已经把新条目压在详情条目之上，back() 会撤掉用户的跳转
+  detailHistoryArmed = false;
+  detailHistoryReleasing = false;
+  detailHistoryReopen = false;
   window.removeEventListener("task:manual-sync", handleManualSync);
   if (inlineDescriptionSyncHold) {
     const token = inlineDescriptionSyncHold;

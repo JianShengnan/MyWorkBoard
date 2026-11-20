@@ -5,7 +5,7 @@
     <LoginView v-if="store.authRequired" />
     <template v-else>
       <TaskModuleRail v-if="isTasks" />
-      <header class="workspace-topbar" :class="{ 'task-domain-topbar': isTasks }">
+      <header ref="topbarRef" class="workspace-topbar" :class="{ 'task-domain-topbar': isTasks }">
         <router-link class="workspace-brand" to="/" aria-label="返回个人工作台"><span class="workspace-brand-mark"><House aria-hidden="true" /></span><b>个人工作台</b></router-link>
         <template v-if="!isHome">
           <span class="workspace-nav-divider" aria-hidden="true"></span>
@@ -29,7 +29,7 @@
         <div v-if="showBasis" class="page-toolbar"><div class="basis-seg" aria-label="工资口径"><button :class="{ on: basis === 'pre' }" type="button" @click="setBasis('pre')">税前</button><button :class="{ on: basis === 'post' }" type="button" @click="setBasis('post')">税后</button></div></div>
         <div class="page-content"><router-view v-slot="{ Component }"><transition name="page" mode="out-in"><component :is="Component" :key="routerViewKey" /></transition></router-view></div>
       </main>
-      <BottomNav v-if="!isHome && !isExternalFlow" />
+      <BottomNav v-if="!isHome && !isExternalFlow" ref="bottomNavRef" />
       <FloatingAgentAssistant v-if="!isHome && store.authUser && !store.offlineSession" />
       <TaskSearchDialog />
     </template>
@@ -37,7 +37,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, House, Setting } from './icons.js'
 import { Bell, Moon, ShieldCheck, Sun, Timer, Wrench } from 'lucide-vue-next'
@@ -56,6 +56,7 @@ import ToastViewport from './components/ui/ToastViewport.vue'
 import LoginView from './views/LoginView.vue'
 import router from './router'
 import { openTaskSearch } from './utils/searchBus.js'
+import { resolveShellMetrics } from './utils/appShellMetrics.js'
 
 const store = useAppStore()
 const worktimeStore = useWorktimeStore()
@@ -106,11 +107,45 @@ const removeErrorGuard = router.onError(() => finishNavigationLoading())
 const basis = computed(() => worktimeStore.settings.basis)
 const showBasis = computed(() => ['/punch', '/records', '/stats'].includes(route.path))
 async function setBasis(value) { if (worktimeStore.settings.basis !== value) await worktimeStore.saveSettings({ basis: value }) }
-onMounted(async () => { window.addEventListener('keydown', onGlobalKeydown); await store.init(); if (store.authUser && !store.offlineSession) { await Promise.all([taskInbox.refresh(), focus.refresh()]); taskInbox.connect() } })
+
+// 应用外壳高度：顶栏是 sticky、底栏是 fixed，各页面又各自写死 calc(100dvh - 88px) / - 64px，
+// 手机上加起来经常差 8~24px（露白或压住底栏）。这里实测真实外框高度（含 safe-area）写进
+// CSS 变量，需要避让的浮层（如随身 AI 入口）直接引用，不再猜像素。
+const topbarRef = ref(null)
+const bottomNavRef = ref(null)
+let shellObserver = null
+function shellBoundingRect(element) {
+  return element?.nodeType === 1 ? element.getBoundingClientRect() : null
+}
+function applyShellMetrics() {
+  if (typeof document === 'undefined') return
+  const metrics = resolveShellMetrics({
+    topbarRect: shellBoundingRect(topbarRef.value),
+    bottomNavRect: shellBoundingRect(bottomNavRef.value?.$el)
+  })
+  const root = document.documentElement
+  root.style.setProperty('--app-topbar-h', `${metrics.topbarHeight}px`)
+  root.style.setProperty('--app-bottombar-h', `${metrics.bottomNavHeight}px`)
+}
+function observeShellElements() {
+  if (typeof ResizeObserver !== 'undefined') {
+    if (!shellObserver) shellObserver = new ResizeObserver(applyShellMetrics)
+    shellObserver.disconnect()
+    for (const element of [topbarRef.value, bottomNavRef.value?.$el]) if (element?.nodeType === 1) shellObserver.observe(element)
+  }
+  applyShellMetrics()
+}
+// 外壳整体由 store.ready 控制，底栏又随路由/登录态出现或消失，元素换掉就得重新挂监听
+watch([() => store.ready, () => store.authRequired, isHome, isExternalFlow], async () => { await nextTick(); observeShellElements() })
+// 底栏是否渲染由路由决定（日历路由没有二级导航、任务域有），BottomNav 内部 v-if 换节点时
+// 外层组件不会重建，只靠上面的 watch 会让 --app-bottombar-h 停在旧值，所以路由变化也重新量一次
+watch(() => route.fullPath, async () => { await nextTick(); observeShellElements() })
+
+onMounted(async () => { window.addEventListener('keydown', onGlobalKeydown); observeShellElements(); await store.init(); if (store.authUser && !store.offlineSession) { await Promise.all([taskInbox.refresh(), focus.refresh()]); taskInbox.connect() } })
 watch(() => [store.authUser?.id, store.offlineSession], ([userId, offline]) => {
   if (userId && !offline) { taskInbox.refresh(); focus.refresh(); taskInbox.connect() } else { taskInbox.disconnect(); focus.reset() }
 })
-onBeforeUnmount(() => { window.removeEventListener('keydown', onGlobalKeydown); taskInbox.disconnect(); finishNavigationLoading(); removeBeforeGuard(); removeAfterGuard(); removeErrorGuard() })
+onBeforeUnmount(() => { window.removeEventListener('keydown', onGlobalKeydown); shellObserver?.disconnect(); shellObserver = null; document.documentElement.style.removeProperty('--app-topbar-h'); document.documentElement.style.removeProperty('--app-bottombar-h'); taskInbox.disconnect(); finishNavigationLoading(); removeBeforeGuard(); removeAfterGuard(); removeErrorGuard() })
 </script>
 
 <style scoped>
