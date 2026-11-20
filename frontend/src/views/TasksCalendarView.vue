@@ -106,6 +106,8 @@
         @pointerdown="onSwipeStart"
         @pointerup="onSwipeEnd"
         @pointercancel="resetSwipe"
+        @lostpointercapture="resetSwipe"
+        @pointerleave="resetSwipe"
       >
         <CalendarMonthView
           v-if="view === 'month' || view === 'multiWeek'"
@@ -949,15 +951,18 @@ function addFromPopover() {
 }
 
 // 月/多周视图左右滑动翻页：横向位移超过阈值且明显大于纵向才触发，避免与纵向滚动/点击冲突
-const swipe = { startX: 0, startY: 0, active: false, suppressClick: false }
+const swipe = { startX: 0, startY: 0, pointerId: null, active: false, suppressClick: false }
+let swipeClickTimer
 
 function onSwipeStart(event) {
-  if (event.pointerType === 'mouse' && event.button !== 0) return
+  resetSwipe()
+  if (event.button !== 0 || event.isPrimary === false) return
   if (view.value !== 'month' && view.value !== 'multiWeek') return
-  // 在日期网格（含跨天泳道）上按下属于「拖选多天 / 点开浮层」，不能同时当成翻页手势
+  // 日期内容始终优先浏览/长按选择，不将其横向滚动解释为翻月。
   if (event.target?.closest?.('.cal-week')) return
-  // 在日期网格（含跨天泳道）上按下属于「拖选多天 / 点开浮层」，不能同时当成翻页手势
-  if (event.target?.closest?.('.cal-week')) return
+  const body = bodyEl.value
+  if (event.pointerType === 'touch' && body && (body.scrollWidth > body.clientWidth + 1 || body.scrollHeight > body.clientHeight + 1)) return
+  swipe.pointerId = event.pointerId
   swipe.startX = event.clientX
   swipe.startY = event.clientY
   swipe.active = true
@@ -965,16 +970,18 @@ function onSwipeStart(event) {
 
 function resetSwipe() {
   swipe.active = false
+  swipe.pointerId = null
 }
 
 function onSwipeEnd(event) {
-  if (!swipe.active) return
-  swipe.active = false
+  if (!swipe.active || event.pointerId !== swipe.pointerId) return
+  resetSwipe()
   const dx = event.clientX - swipe.startX
   const dy = event.clientY - swipe.startY
   if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.6) return
   swipe.suppressClick = true
-  window.setTimeout(() => { swipe.suppressClick = false }, 260)
+  window.clearTimeout(swipeClickTimer)
+  swipeClickTimer = window.setTimeout(() => { swipe.suppressClick = false }, 260)
   navigate(dx < 0 ? 'next' : 'prev')
 }
 
@@ -1244,6 +1251,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('resize', measure)
   observer?.disconnect()
+  window.clearTimeout(swipeClickTimer)
+  resetSwipe()
 })
 </script>
 
@@ -1907,10 +1916,6 @@ onBeforeUnmount(() => {
   .cal-nav .cal-nav-today {
     padding: 0 6px;
     font-size: 11.5px;
-  }
-  /* 手机宽度下月格保持可读列宽，横向滚动发生在日历容器内部而不是整页 */
-  .cal-month {
-    min-width: 560px;
   }
   .cal-quick {
     top: 50px;

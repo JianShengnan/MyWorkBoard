@@ -757,11 +757,11 @@
     <aside
       class="clone-detail-pane"
       :style="detailPaneStyle"
-      :class="{ 'is-empty': !selectedTask && !editorOpen && !selectedIds.size && !listActivityOpen && !habitPaneHabit, 'is-batch': Boolean(selectedIds.size), 'is-list-activity': listActivityOpen, 'is-habit': Boolean(habitPaneHabit) }"
+      :class="{ 'is-empty': !selectedTask && !editorOpen && !selectedIds.size && !listActivityOpen && !habitPaneHabit, 'is-batch': Boolean(selectedIds.size), 'is-list-activity': listActivityOpen, 'is-habit': Boolean(habitPaneHabit), 'is-mobile-task-detail': detailPresentation.mobileTaskDetail }"
       :aria-label="habitPaneHabit ? '习惯详情' : selectedIds.size ? '批量操作' : listActivityOpen ? '清单动态' : '任务详情'"
-      :role="selectedIds.size || listActivityOpen || (activeWorkspaceView !== 'LIST' && (selectedTask || editorOpen)) ? 'dialog' : undefined"
-      :aria-modal="selectedIds.size || listActivityOpen || (activeWorkspaceView !== 'LIST' && (selectedTask || editorOpen)) ? 'true' : undefined"
-      :aria-hidden="isMobileSidebar && !selectedIds.size && !listActivityOpen ? 'true' : undefined"
+      :role="detailPresentation.dialog ? 'dialog' : undefined"
+      :aria-modal="detailPresentation.dialog ? 'true' : undefined"
+      :aria-hidden="detailPresentation.hidden ? 'true' : undefined"
     >
       <HabitDetailPane v-if="habitPaneHabit" :habit="habitPaneHabit" @close="closeHabitPane" @removed="closeHabitPane" />
       <section v-else-if="selectedIds.size" class="clone-batch-panel" aria-label="批量操作面板">
@@ -807,6 +807,7 @@
       </section>
       <template v-else>
       <header v-if="selectedTask || editorOpen" class="clone-detail-toolbar" @click.stop>
+        <button v-if="isMobileSidebar" type="button" class="clone-detail-back" aria-label="关闭任务详情，返回列表" @click="closeDetail"><ArrowLeft :size="19" /></button>
         <div class="clone-detail-toolbar-main">
           <button v-if="!editorOpen && !isNoteSelected" type="button" class="clone-detail-status-tool" :class="{ completed: selectedTask?.status === 'COMPLETED', abandoned: selectedTask?.status === 'ABANDONED' }" :aria-label="selectedTask?.status === 'COMPLETED' ? '重新打开任务' : '标记任务完成'" @click="toggleComplete(selectedTask)"><Check v-if="selectedTask?.status === 'COMPLETED'" :size="14" /></button>
           <button v-else-if="editorOpen && !isNoteSelected" type="button" class="clone-detail-status-tool" :class="{ completed: draft.status === 'COMPLETED', abandoned: draft.status === 'ABANDONED' }" aria-label="任务完成状态" @click="draft.status = draft.status === 'COMPLETED' ? 'OPEN' : 'COMPLETED'"><Check v-if="draft.status === 'COMPLETED'" :size="14" /></button>
@@ -1563,6 +1564,7 @@ import { organizationIconCategories, searchOrganizationIcons } from "./taskOrgan
 import { getListDropPlacement, moveItem, reorderListDrop } from "./taskSidebar.js";
 import { groupTaskItems, sortTaskItems, taskGroupDropPatch } from "./taskList.js";
 import { buildTaskListGroups } from "./taskWorkspaceTree.js";
+import { taskDetailPresentation } from "./taskDetailPresentation.js";
 import { moveChecklistItem as reorderChecklistItems } from "./taskChecklist.js";
 import { matchesFilterRules, serializeFilterRules } from "./taskFilterRules.js";
 import { advancedFilterConditionsFromRules, advancedFilterConditionsValid, buildAdvancedFilterRules } from "./taskAdvancedFilter.js";
@@ -2854,6 +2856,15 @@ const searchCountdowns = computed(() => (isSearchRoute.value
 /** 任务页/搜索页右栏当前查看的习惯（点习惯行进入，和习惯页右侧详情一致） */
 const habitPaneId = ref("");
 const habitPaneHabit = computed(() => (habitPaneId.value ? store.habits.find((item) => item.publicId === habitPaneId.value) || null : null));
+const detailPresentation = computed(() => taskDetailPresentation({
+  mobile: isMobileSidebar.value,
+  workspaceView: activeWorkspaceView.value,
+  hasTask: Boolean(selectedTask.value),
+  editorOpen: editorOpen.value,
+  batchCount: selectedIds.size,
+  listActivityOpen: listActivityOpen.value,
+  hasHabit: Boolean(habitPaneHabit.value),
+}));
 /** 详情栏是否以「浮在列表上的抽屉」形式呈现（决定要不要挂遮罩）：901–1279px 的详情是 fixed 右侧抽屉 */
 const detailPaneFloating = computed(() => {
   if (!selectedTask.value && !editorOpen.value) return false;
@@ -4517,6 +4528,10 @@ function openTaskRow(task, event) {
     centerX: clickX > 0 ? clickX : (rect.left + rect.right) / 2,
   } : null;
   openDetail(task);
+  if (isMobileSidebar.value) {
+    inlineRowTitleTaskId.value = "";
+    return;
+  }
   inlineRowTitleTaskId.value = task.publicId;
   inlineRowTitleDraft.value = task.title;
   void nextTick(() => {
@@ -5718,6 +5733,14 @@ function closeDetail() {
   datePopoverOpen.value = false;
   repeatPopoverOpen.value = false;
   priorityPopoverOpen.value = false;
+  if (isMobileSidebar.value) {
+    inlineRowTitleTaskId.value = "";
+    detailListPickerOpen.value = false;
+    detailTagPickerOpen.value = false;
+    detailBlockMenuOpen.value = false;
+    detailLinkPickerOpen.value = false;
+    closeDetailMore();
+  }
 }
 // 详情栏/工具栏的浮层互斥：日期、表单里的重复下拉、优先级、插入菜单、父任务选择、页面菜单、清单选项
 // 注意：「提醒」「重复」是日期浮层内部的内嵌面板，不能进互斥组——否则一打开就会把宿主日期浮层关掉
@@ -7957,7 +7980,7 @@ function onKeydown(event) {
     organizationMenuOpen.value = false;
     clearBatchSelection();
     if (window.matchMedia("(max-width: 900px)").matches) sidebarHidden.value = true;
-    if (editorOpen.value || (activeWorkspaceView.value !== "LIST" && selectedTask.value)) closeDetail();
+    if (editorOpen.value || ((isMobileSidebar.value || activeWorkspaceView.value !== "LIST") && selectedTask.value)) closeDetail();
   }
   if (
     event.key.toLowerCase() === "n" &&
@@ -7996,6 +8019,10 @@ watch(
     // 工作区不再随路由重建（key 固定为 /tasks/list），所以切视图要自己收尾：
     // 否则右侧会一直挂着上一个视图打开的任务，侧栏高亮和详情内容对不上。
     closeDetail();
+    if (isMobileSidebar.value) {
+      clearBatchSelection();
+      closeHabitPane();
+    }
     if (route.query.task) {
       const task = store.tasks.find(
         (item) => item.publicId === route.query.task,
@@ -10629,8 +10656,33 @@ const SidebarSection = {
   .clone-task-row, .clone-task-group { break-inside: avoid; }
 }
 
-/* 手机端：任务详情本来按抽屉规则隐藏，习惯详情改成整屏覆盖（与习惯页一致，左上角返回） */
+/* 手机端复用完整详情，工具栏固定可达，正文独立滚动。 */
 @media (max-width: 900px) {
+  .clone-detail-pane.is-mobile-task-detail {
+    position: fixed;
+    z-index: 301;
+    inset: 0;
+    display: flex !important;
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    box-sizing: border-box;
+    margin: 0;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
+    overflow: hidden;
+    border: 0;
+    border-radius: 0;
+  }
+  .clone-task-shell > .clone-detail-pane.is-mobile-task-detail { animation: none; }
+  .clone-detail-back { flex: 0 0 44px; min-width: 44px; min-height: 44px; margin-right: 4px; }
+  .clone-detail-pane.is-mobile-task-detail .clone-detail-read,
+  .clone-detail-pane.is-mobile-task-detail .clone-detail-form { min-height: 0; flex: 1 1 auto; overflow: auto; overscroll-behavior: contain; padding: 16px 16px calc(132px + env(safe-area-inset-bottom, 0px)); }
+  .clone-detail-pane.is-mobile-task-detail .clone-detail-footer { min-height: 56px; padding-right: max(12px, env(safe-area-inset-right, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); padding-left: max(12px, env(safe-area-inset-left, 0px)); }
+  .clone-detail-pane.is-mobile-task-detail .clone-detail-footer button { min-height: 44px; }
+  .clone-detail-pane.is-mobile-task-detail .clone-detail-footer-actions > button { min-width: 44px; }
+  .clone-detail-pane.is-mobile-task-detail .clone-detail-comment-composer { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  :global(body:has(.clone-detail-pane.is-mobile-task-detail) .ui-dialog-backdrop) { z-index: 340; }
+  :global(body:has(.clone-detail-pane.is-mobile-task-detail) .ui-dialog) { z-index: 341; }
   .clone-detail-pane.is-habit {
     position: fixed;
     z-index: 302;

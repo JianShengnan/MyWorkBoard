@@ -1,5 +1,5 @@
 <template>
-  <div class="cal-month">
+  <div ref="monthEl" class="cal-month" @pointerdown.capture="gesture.resetClick" @click.capture="gesture.guardClick" @contextmenu="gesture.guardContextMenu">
     <div class="cal-month-dow" :class="{ 'is-no-wn': !showWeekNumber }">
       <span v-if="showWeekNumber" class="cal-week-gutter"></span>
       <span v-for="(label, index) in dowLabels" :key="`${label}-${index}`">{{ label }}</span>
@@ -11,6 +11,7 @@
         class="cal-week"
         :style="{ '--lane-height': `${weekViews[index].laneHeight}px` }"
         @pointerdown="onWeekPointerDown($event)"
+        @touchstart="onWeekPointerDown($event, true)"
       >
         <div v-if="showWeekNumber" class="cal-week-gutter" :aria-label="`第 ${weekNumber(week[0])} 周`">{{ weekNumber(week[0]) }}<small>周</small></div>
         <div
@@ -25,7 +26,6 @@
             'in-range': isInRange(day)
           }"
           :data-date="dayKey(day)"
-          @pointerenter="onDayPointerEnter(day)"
           @click="handleDayClick(day, $event)"
           @dragover.prevent
           @drop.prevent="$emit('drop-task', dayKey(day), null, $event)"
@@ -102,11 +102,12 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { Briefcase, CalendarClock, CalendarOff, Circle, CircleCheck, Coins, Hourglass } from 'lucide-vue-next'
 import { WEEKDAY_LABELS, isoWeekNumber, toDateKey } from './calendarRange.js'
 import { tintStyle } from './calendarColors.js'
 import { packWeekLanes, visibleRowCount } from './calendarLanes.js'
+import { createCalendarGesture } from './calendarGesture.js'
 
 const props = defineProps({
   weeks: { type: Array, required: true },
@@ -126,21 +127,30 @@ const dowLabels = computed(() => (props.weeks[0] || []).map(day => WEEKDAY_LABEL
 const emit = defineEmits(['select-day', 'open-event', 'select-range', 'drop-task'])
 
 const dayDrag = ref(null)
-let suppressClick = false
+const monthEl = ref(null)
+const gesture = createCalendarGesture()
+onBeforeUnmount(() => gesture.dispose())
 
 function cellAtPoint(x, y) {
   const stack = document.elementsFromPoint(x, y) || []
-  return stack.find(element => element.classList?.contains('cal-day')) || null
+  return stack.find(element => element.classList?.contains('cal-day') && monthEl.value?.contains(element)) || null
 }
 
-function onWeekPointerDown(event) {
-  if (event.button !== 0) return
-  const cell = event.target.closest?.('.cal-day') || cellAtPoint(event.clientX, event.clientY)
+function onWeekPointerDown(event, touch = false) {
+  const point = touch ? event.touches[0] : event
+  if (!point) return
+  const cell = event.target.closest?.('.cal-day') || cellAtPoint(point.clientX, point.clientY)
   const key = cell?.dataset?.date
   if (!key) return
-  dayDrag.value = { startKey: key, endKey: key, moved: false }
-  window.addEventListener('pointermove', onDayPointerMove)
-  window.addEventListener('pointerup', onDayPointerUp, { once: true })
+  // 触摸事件条只负责浏览/点开，长按拖选从空白日期格开始。
+  if (touch && event.target.closest?.('button')) return
+  const start = touch ? gesture.startTouch : gesture.startPointer
+  start(event, {
+    activate: () => { dayDrag.value = { startKey: key, endKey: key, moved: false } },
+    move: onDayPointerMove,
+    end: onDayPointerUp,
+    cancel: () => { dayDrag.value = null }
+  })
 }
 
 // 泳道层盖在日期格之上，pointerenter 会落到泳道上，因此按坐标回溯命中的日期格
@@ -153,37 +163,20 @@ function onDayPointerMove(event) {
   dayDrag.value.endKey = key
 }
 
-function onDayPointerEnter(day) {
-  if (!dayDrag.value) return
-  const key = toDateKey(day)
-  if (key !== dayDrag.value.startKey) dayDrag.value.moved = true
-  dayDrag.value.endKey = key
-}
-
 function onDayPointerUp() {
-  window.removeEventListener('pointermove', onDayPointerMove)
   const state = dayDrag.value
   dayDrag.value = null
   if (!state || !state.moved || state.startKey === state.endKey) return
-  suppressClick = true
-  window.setTimeout(() => { suppressClick = false }, 0)
+  gesture.suppressClick()
   const [startKey, endKey] = state.startKey <= state.endKey ? [state.startKey, state.endKey] : [state.endKey, state.startKey]
   emit('select-range', startKey, endKey)
 }
 
 function handleDayClick(day, event) {
-  if (suppressClick) {
-    suppressClick = false
-    return
-  }
   emit('select-day', day, event)
 }
 
 function handleEventClick(event, nativeEvent) {
-  if (suppressClick) {
-    suppressClick = false
-    return
-  }
   emit('open-event', event, nativeEvent)
 }
 
@@ -270,6 +263,13 @@ function eventTitle(event) {
   height: 100%;
   min-height: 0;
   background: var(--card);
+  touch-action: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+@media (max-width: 1023px) {
+  .cal-month { min-width: 560px; }
 }
 .cal-month-dow {
   display: grid;

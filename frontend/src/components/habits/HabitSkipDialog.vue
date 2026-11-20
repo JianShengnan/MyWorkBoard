@@ -85,7 +85,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
-.hk-mask { position: fixed; z-index: 176; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(24 30 40 / 32%); }
+.hk-mask { position: fixed; z-index: 360; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(24 30 40 / 32%); }
 .hk-sheet { position: relative; display: grid; width: min(432px, calc(100vw - 24px)); gap: 12px; padding: 22px 24px 18px; border-radius: 18px; background: var(--card); box-shadow: 0 26px 62px rgb(15 23 42 / 26%); }
 .hk-dot { position: absolute; top: 14px; left: 14px; width: 10px; height: 10px; border-radius: 50%; background: #f2706a; }
 .hk-head { display: flex; align-items: center; justify-content: center; gap: 10px; }

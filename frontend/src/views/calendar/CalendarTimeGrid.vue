@@ -1,5 +1,5 @@
 <template>
-  <div class="cal-time" :class="{ 'is-multi': days.length > 1 }">
+  <div class="cal-time" :class="{ 'is-multi': days.length > 1, 'is-touch-editing': touchEditing }" @pointerdown.capture="gesture.resetClick" @click.capture="gesture.guardClick" @contextmenu="gesture.guardContextMenu">
     <div class="cal-time-head" :style="{ ...gridStyle, minWidth: `${minWidth}px` }">
       <div class="cal-time-gutter">
         <span v-if="days.length > 1" class="cal-time-week">{{ weekLabel }}</span>
@@ -86,11 +86,11 @@
           </div>
         </div>
       </div>
-      <div v-if="!allDayCollapsed" class="cal-allday-resize" role="separator" aria-label="拖动调整全天区高度" @pointerdown="startResizeAllDay"></div>
+      <div v-if="!allDayCollapsed" class="cal-allday-resize" role="separator" aria-label="拖动调整全天区高度" @pointerdown="startResizeAllDay" @touchstart="startResizeAllDay($event, true)"></div>
     </div>
 
-    <div ref="scrollEl" class="cal-scroll">
-      <div v-if="viewWindow.start > 0" class="cal-hidden" @pointerdown="startHiddenDrag('top', $event)">
+    <div class="cal-scroll" :style="{ minWidth: `${minWidth}px` }">
+      <div v-if="viewWindow.start > 0" class="cal-hidden" @pointerdown="startHiddenDrag('top', $event)" @touchstart="startHiddenDrag('top', $event, true)">
         <span>{{ minutesToLabel(viewWindow.start) }} 前已收起</span>
         <i class="cal-hidden-handle" aria-hidden="true"><GripHorizontal :size="11" /></i>
       </div>
@@ -105,6 +105,7 @@
           class="cal-col"
           :class="{ today: toDateKey(day) === todayKey }"
           @pointerdown="startRangeDrag(day, $event)"
+          @touchstart="startRangeDrag(day, $event, true)"
           @click="handleColumnClick(day, $event)"
           @dragover.prevent
           @drop.prevent="onColumnDrop(day, $event)"
@@ -117,6 +118,7 @@
             class="cal-block"
             :class="[`kind-${block.event.kind}`, {
               'is-done': block.event.done,
+              'is-dragging': dragPreview?.id === block.event.id,
               'is-short': block.geometry.height < 34,
               'is-clipped-top': block.geometry.clippedStart,
               'is-clipped-bottom': block.geometry.clippedEnd,
@@ -126,10 +128,11 @@
             :style="blockStyle(block)"
             :title="blockTitle(block.event)"
             @pointerdown.stop="startBlockDrag(block, $event)"
+            @touchstart.stop="startBlockGesture(block, 'move', $event, true)"
             @click.stop="handleBlockClick(block.event, $event)"
           >
-            <span class="cal-block-handle is-top" @pointerdown.stop="startBlockResize(block, 'start', $event)"></span>
-            <span class="cal-block-handle is-bottom" @pointerdown.stop="startBlockResize(block, 'end', $event)"></span>
+            <span class="cal-block-handle is-top" @pointerdown.stop="startBlockResize(block, 'start', $event)" @touchstart.stop="startBlockGesture(block, 'start', $event, true)"></span>
+            <span class="cal-block-handle is-bottom" @pointerdown.stop="startBlockResize(block, 'end', $event)" @touchstart.stop="startBlockGesture(block, 'end', $event, true)"></span>
             <span class="cal-block-title">
               <Timer v-if="block.event.kind === 'focus'" :size="10" />
               <span>{{ block.event.title }}</span>
@@ -143,7 +146,7 @@
         </div>
       </div>
 
-      <div v-if="viewWindow.end < MINUTES_PER_DAY" class="cal-hidden" @pointerdown="startHiddenDrag('bottom', $event)">
+      <div v-if="viewWindow.end < MINUTES_PER_DAY" class="cal-hidden" @pointerdown="startHiddenDrag('bottom', $event)" @touchstart="startHiddenDrag('bottom', $event, true)">
         <span>{{ minutesToLabel(viewWindow.end) }} 后已收起</span>
         <i class="cal-hidden-handle" aria-hidden="true"><GripHorizontal :size="11" /></i>
       </div>
@@ -161,6 +164,7 @@ import {
   MINUTES_PER_DAY, blockGeometry, hourMarks, layoutColumns, minutesToLabel, snapMinutes, visibleWindow
 } from './calendarTimeGrid.js'
 import { dragRange, formatDuration, moveBlock, pointerToMinutes, resizeBlock } from './calendarDrag.js'
+import { createCalendarGesture } from './calendarGesture.js'
 import TaskOrganizationIcon from '../../components/tasks/TaskOrganizationIcon.vue'
 
 const props = defineProps({
@@ -182,13 +186,30 @@ const emit = defineEmits([
 ])
 
 const GUTTER = 52
-const scrollEl = ref(null)
 const now = ref(new Date())
 const selection = ref(null)
 const dragPreview = ref(null)
-let dragContext = null
-let suppressColumnClick = false
-let suppressBlockClick = false
+const gesture = createCalendarGesture()
+const touchEditing = ref(false)
+
+function startGesture(event, callbacks, touch = false) {
+  const start = touch ? gesture.startTouch : gesture.startPointer
+  return start(event, {
+    ...callbacks,
+    activate: point => {
+      touchEditing.value = touch
+      callbacks.activate?.(point)
+    },
+    end: (point, active) => {
+      touchEditing.value = false
+      callbacks.end?.(point, active)
+    },
+    cancel: () => {
+      touchEditing.value = false
+      callbacks.cancel?.()
+    }
+  })
+}
 
 const gridStyle = computed(() => ({ gridTemplateColumns: `${GUTTER}px repeat(${props.days.length}, minmax(0, 1fr))` }))
 const colsStyle = computed(() => ({ gridTemplateColumns: `repeat(${props.days.length}, minmax(0, 1fr))` }))
@@ -332,36 +353,32 @@ const selectionLabel = computed(() => {
   return `${minutesToLabel(selection.value.startMinutes)} – ${minutesToLabel(selection.value.endMinutes)} · ${formatDuration(selection.value.endMinutes - selection.value.startMinutes)}`
 })
 
-function startRangeDrag(day, event) {
-  if (event.button !== 0 || event.target.closest('.cal-block')) return
+function startRangeDrag(day, event, touch = false) {
+  if (event.target.closest('.cal-block')) return
+  const point = touch ? event.touches[0] : event
+  if (!point) return
   const rect = event.currentTarget.getBoundingClientRect()
-  const startMinutes = pointerToMinutes(event.clientY - rect.top, props.hourHeight, viewWindow.value.start)
-  dragContext = { day, rect, startMinutes, startY: event.clientY, moved: false }
-  selection.value = null
-  window.addEventListener('pointermove', onRangeMove)
-  window.addEventListener('pointerup', onRangeUp)
-}
-
-function onRangeMove(event) {
-  if (!dragContext) return
-  if (Math.abs(event.clientY - dragContext.startY) > 5) dragContext.moved = true
-  if (!dragContext.moved) return
-  const current = pointerToMinutes(event.clientY - dragContext.rect.top, props.hourHeight, viewWindow.value.start)
-  const range = dragRange(dragContext.startMinutes, current)
-  selection.value = { dayKey: toDateKey(dragContext.day), ...range }
-}
-
-function onRangeUp() {
-  window.removeEventListener('pointermove', onRangeMove)
-  window.removeEventListener('pointerup', onRangeUp)
-  const context = dragContext
-  const picked = selection.value
-  dragContext = null
-  selection.value = null
-  if (!context || !context.moved || !picked) return
-  suppressColumnClick = true
-  window.setTimeout(() => { suppressColumnClick = false }, 0)
-  emit('create-range', context.day, picked.startMinutes, picked.endMinutes)
+  const startMinutes = pointerToMinutes(point.clientY - rect.top, props.hourHeight, viewWindow.value.start)
+  let moved = false
+  startGesture(event, {
+    activate: () => {
+      selection.value = touch ? { dayKey: toDateKey(day), ...dragRange(startMinutes, startMinutes) } : null
+    },
+    move: next => {
+      if (Math.abs(next.clientY - point.clientY) > 5) moved = true
+      if (!moved) return
+      const current = pointerToMinutes(next.clientY - rect.top, props.hourHeight, viewWindow.value.start)
+      selection.value = { dayKey: toDateKey(day), ...dragRange(startMinutes, current) }
+    },
+    end: () => {
+      const picked = selection.value
+      selection.value = null
+      if (!moved || !picked) return
+      gesture.suppressClick()
+      emit('create-range', day, picked.startMinutes, picked.endMinutes)
+    },
+    cancel: () => { selection.value = null }
+  }, touch)
 }
 
 function startBlockDrag(block, event) {
@@ -374,39 +391,38 @@ function startBlockResize(block, edge, event) {
   startBlockGesture(block, edge, event)
 }
 
-function startBlockGesture(block, mode, event) {
-  const startY = event.clientY
+function startBlockGesture(block, mode, event, touch = false) {
+  const point = touch ? event.touches[0] : event
+  if (!point) return
+  const startY = point.clientY
   const originStart = block.event.startMinutes
   const originEnd = block.event.endMinutes
   let moved = false
-  const move = moveEvent => {
-    if (Math.abs(moveEvent.clientY - startY) > 3) moved = true
-    if (!moved) return
-    const delta = ((moveEvent.clientY - startY) / props.hourHeight) * 60
-    const next = mode === 'move'
-      ? moveBlock(originStart, originEnd - originStart, delta)
-      : resizeBlock(originStart, originEnd, mode, delta)
-    dragPreview.value = { id: block.event.id, ...next }
-  }
-  const up = () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-    const preview = dragPreview.value
-    dragPreview.value = null
-    if (!moved || !preview) return
-    suppressBlockClick = true
-    window.setTimeout(() => { suppressBlockClick = false }, 0)
-    emit(mode === 'move' ? 'move-block' : 'resize-block', block.event, preview.startMinutes, preview.endMinutes)
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up)
+  startGesture(event, {
+    activate: () => {
+      if (touch) dragPreview.value = { id: block.event.id, startMinutes: originStart, endMinutes: originEnd }
+    },
+    move: moveEvent => {
+      if (Math.abs(moveEvent.clientY - startY) > 3) moved = true
+      if (!moved) return
+      const delta = ((moveEvent.clientY - startY) / props.hourHeight) * 60
+      const next = mode === 'move'
+        ? moveBlock(originStart, originEnd - originStart, delta)
+        : resizeBlock(originStart, originEnd, mode, delta)
+      dragPreview.value = { id: block.event.id, ...next }
+    },
+    end: () => {
+      const preview = dragPreview.value
+      dragPreview.value = null
+      if (!moved || !preview) return
+      gesture.suppressClick()
+      emit(mode === 'move' ? 'move-block' : 'resize-block', block.event, preview.startMinutes, preview.endMinutes)
+    },
+    cancel: () => { dragPreview.value = null }
+  }, touch)
 }
 
 function handleBlockClick(event, nativeEvent) {
-  if (suppressBlockClick) {
-    suppressBlockClick = false
-    return
-  }
   emit('open-event', event, nativeEvent)
 }
 
@@ -417,10 +433,6 @@ function onColumnDrop(day, event) {
 }
 
 function handleColumnClick(day, event) {
-  if (suppressColumnClick) {
-    suppressColumnClick = false
-    return
-  }
   if (event.target.closest('.cal-block')) return
   const column = event.currentTarget
   const rect = column.getBoundingClientRect()
@@ -429,43 +441,40 @@ function handleColumnClick(day, event) {
   emit('create-at', day, minutes)
 }
 
-function startResizeAllDay(event) {
-  event.preventDefault()
-  const startY = event.clientY
+function startResizeAllDay(event, touch = false) {
+  if (!touch && event.pointerType === 'touch') return
+  if (!touch) event.preventDefault()
+  const startY = (touch ? event.touches[0] : event)?.clientY
   const startHeight = props.allDayHeight
-  const move = moveEvent => emit('update:allDayHeight', Math.round(Math.min(260, Math.max(32, startHeight + moveEvent.clientY - startY))))
-  const up = () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up)
+  startGesture(event, {
+    move: next => emit('update:allDayHeight', Math.round(Math.min(260, Math.max(32, startHeight + next.clientY - startY))))
+  }, touch)
 }
 
-function startHiddenDrag(edge, event) {
-  event.preventDefault()
+function startHiddenDrag(edge, event, touch = false) {
+  if (!touch && event.pointerType === 'touch') return
+  if (!touch) event.preventDefault()
   event.stopPropagation()
-  const startY = event.clientY
+  const startY = (touch ? event.touches[0] : event)?.clientY
   const startValue = edge === 'top' ? viewWindow.value.start : viewWindow.value.end
-  const move = moveEvent => {
-    const deltaMinutes = ((moveEvent.clientY - startY) / props.hourHeight) * 60
-    const next = snapMinutes(startValue + deltaMinutes, 30)
-    if (edge === 'top') emit('update:hiddenTop', Math.min(720, Math.max(0, next)))
-    else emit('update:hiddenBottom', Math.min(MINUTES_PER_DAY, Math.max(720, next)))
-  }
-  const up = () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up)
+  startGesture(event, {
+    move: nextPoint => {
+      const deltaMinutes = ((nextPoint.clientY - startY) / props.hourHeight) * 60
+      const next = snapMinutes(startValue + deltaMinutes, 30)
+      if (edge === 'top') emit('update:hiddenTop', Math.min(720, Math.max(0, next)))
+      else emit('update:hiddenBottom', Math.min(MINUTES_PER_DAY, Math.max(720, next)))
+    }
+  }, touch)
 }
 
 let ticker
 onMounted(() => {
   ticker = window.setInterval(() => { now.value = new Date() }, 60_000)
 })
-onBeforeUnmount(() => { window.clearInterval(ticker) })
+onBeforeUnmount(() => {
+  window.clearInterval(ticker)
+  gesture.dispose()
+})
 </script>
 
 <style scoped>
@@ -477,6 +486,17 @@ onBeforeUnmount(() => { window.clearInterval(ticker) })
   overflow-x: auto;
   overflow-y: hidden;
   background: var(--card);
+}
+.cal-time.is-touch-editing .cal-block.is-dragging {
+  outline: 1px solid var(--accent);
+}
+.cal-col,
+.cal-block,
+.cal-hidden,
+.cal-allday-resize {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .cal-time-head {
   display: grid;
@@ -607,7 +627,7 @@ onBeforeUnmount(() => { window.clearInterval(ticker) })
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
 }
 .cal-allday-cols {
   display: grid;
@@ -750,7 +770,7 @@ onBeforeUnmount(() => { window.clearInterval(ticker) })
   min-width: 0;
   border-right: 1px solid var(--line);
   cursor: crosshair;
-  touch-action: none;
+  touch-action: auto;
 }
 .cal-selection {
   position: absolute;
@@ -825,7 +845,7 @@ onBeforeUnmount(() => { window.clearInterval(ticker) })
 }
 .cal-block {
   position: absolute;
-  touch-action: none;
+  touch-action: auto;
   display: flex;
   flex-direction: column;
   gap: 1px;

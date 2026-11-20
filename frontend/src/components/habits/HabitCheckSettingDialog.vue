@@ -40,7 +40,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
-.hs-mask { position: fixed; z-index: 176; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(24 30 40 / 32%); }
+.hs-mask { position: fixed; z-index: 360; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(24 30 40 / 32%); }
 .hs-sheet { position: relative; display: grid; gap: 20px; width: min(430px, calc(100vw - 24px)); padding: 22px 24px 18px; border-radius: 18px; background: var(--card); box-shadow: 0 26px 62px rgb(15 23 42 / 26%); }
 .hs-dot { position: absolute; top: 14px; left: 14px; width: 10px; height: 10px; border-radius: 50%; background: #f2706a; }
 .hs-sheet h2 { margin: 6px 0 8px; font-size: 17px; font-weight: 600; letter-spacing: -.01em; text-align: center; }

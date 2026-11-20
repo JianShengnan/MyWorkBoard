@@ -1,5 +1,6 @@
 <template>
   <section class="set-pane">
+    <AgentEntrySettings />
     <section class="set-theme-block">
         <h4 class="set-theme-title">颜色主题</h4>
         <div class="set-color-grid">
@@ -54,6 +55,7 @@
 
 <script setup>
 import { Plus } from 'lucide-vue-next'
+import AgentEntrySettings from './AgentEntrySettings.vue'
 import { message } from '../../services/message.js'
 import { CITY_THEMES, COLOR_THEMES, PHOTO_THEMES, SEASON_THEMES } from './settingsState.js'
 import { THEME_ART } from './themeArt.js'

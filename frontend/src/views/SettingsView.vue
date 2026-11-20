@@ -18,6 +18,8 @@
       </div>
     </div>
 
+    <AgentEntrySettings v-show="activeModule === 'general'" />
+
     <div v-show="activeModule === 'account'" class="card set-group account-settings">
       <h2>账号</h2>
       <div class="row">
@@ -246,6 +248,7 @@ import { apiListAgentBudgetAlerts, apiMarkAgentBudgetAlertRead, apiListAgentOper
 import { message } from '../services/message.js'
 import Button from '../components/ui/Button.vue'
 import Dialog from '../components/ui/Dialog.vue'
+import AgentEntrySettings from '../components/settings/AgentEntrySettings.vue'
 import { useAppStore } from '../stores/app'
 import { CALC } from '../utils/calc'
 import { copyText } from '../utils/clipboard.js'

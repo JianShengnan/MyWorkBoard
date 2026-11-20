@@ -90,7 +90,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
-.hc-mask { position: fixed; z-index: 175; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(24 30 40 / 32%); }
+.hc-mask { position: fixed; z-index: 360; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(24 30 40 / 32%); }
 .hc-sheet { width: min(400px, calc(100vw - 24px)); border-radius: 18px; background: var(--card); box-shadow: 0 26px 60px rgb(15 23 42 / 26%); }
 .hc-head { display: flex; align-items: center; gap: 12px; padding: 20px 22px 8px; }
 .hc-icon { display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; border-radius: 50%; font-size: 22px; line-height: 1; }

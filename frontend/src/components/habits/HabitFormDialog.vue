@@ -577,7 +577,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.hf-mask { position: fixed; z-index: 170; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(24 30 40 / 32%); }
+.hf-mask { position: fixed; z-index: 360; inset: 0; display: grid; place-items: center; padding: 20px; background: rgb(24 30 40 / 32%); }
 .hf-sheet {
   position: relative;
   display: flex; flex-direction: column;
