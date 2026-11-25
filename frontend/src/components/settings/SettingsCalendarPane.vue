@@ -42,13 +42,63 @@
     <p v-else class="hint">还没有生成地址。生成后可以随时回到这里查看和复制。</p>
 
     <ol class="feed-steps">
-      <li><b>飞书</b>：日历 → 左侧「添加日历」→「订阅日历」→ 粘贴地址 → 订阅。订阅来的日历只读，颜色可自选。</li>
       <li><b>苹果日历</b>：文件 → 新建日历订阅 → 粘贴地址。</li>
       <li><b>Outlook</b>：添加日历 → 从 Internet 订阅 → 粘贴地址。</li>
+      <li><b>飞书</b>：不支持这个地址（只能搜索飞书内日历，或绑定 Google/Outlook 账号），请用下面的「飞书日历同步」。</li>
     </ol>
     <p class="hint">
-      同步周期由客户端决定（飞书实测几分钟到半小时，不是实时）；提醒时间随任务的提醒设置一起导出，
+      同步周期由客户端决定（苹果/Outlook 通常几小时）；提醒时间随任务的提醒设置一起导出，
       所以订阅端也会按点弹提醒。
+    </p>
+  </div>
+
+  <div class="card set-group feishu-calendar">
+    <h2>飞书日历同步</h2>
+    <p class="hint">
+      飞书没有「通过网址订阅」的能力（自带日历：只能搜联系人和公共日历；第三方：只认 Google / Exchange / Outlook 账号），
+      所以这里换一种做法——应用在飞书里建一个「WorkBoard」日历并共享给你，定时把任务和倒数日写成日程。
+      改完任务不用重新导入，最多 5 分钟自动生效。
+    </p>
+
+    <div class="row">
+      <div class="lbl">
+        同步状态
+        <small v-if="fc.enabled">
+          已开启 · {{ fc.lastEventCount }} 条日程<template v-if="fc.lastSyncedAt"> · 最近同步 {{ formatTime(fc.lastSyncedAt) }}</template>
+        </small>
+        <small v-else-if="!fc.configured">服务端未配置飞书应用凭证</small>
+        <small v-else-if="!fc.bound">请先在「消息推送」里绑定飞书账号</small>
+        <small v-else>未开启，开启后飞书左侧会多一个「WorkBoard」日历</small>
+      </div>
+      <div class="ctl">
+        <Button v-if="!fc.enabled" size="sm" :disabled="fcBusy || !fc.bound" @click="enableFeishu">
+          {{ fcBusy ? '创建中…' : '开启同步' }}
+        </Button>
+        <template v-else>
+          <Button size="sm" variant="ghost" :disabled="fcBusy" @click="syncFeishu">
+            {{ fcBusy ? '同步中…' : '立即同步' }}
+          </Button>
+          <Button size="sm" variant="danger" :disabled="fcBusy" @click="disableFeishu">关闭</Button>
+        </template>
+      </div>
+    </div>
+
+    <div v-if="fc.enabled" class="row">
+      <div class="lbl">
+        同步内容
+        <small>任务取近 7 天到未来 45 天，倒数日取近 7 天到未来一年</small>
+      </div>
+      <div class="ctl">
+        <SettingSwitch :model-value="fc.includeTasks" label="任务" :disabled="fcBusy"
+          @update:model-value="value => updateScope({ includeTasks: value })" />
+        <SettingSwitch :model-value="fc.includeCountdowns" label="倒数日" :disabled="fcBusy"
+          @update:model-value="value => updateScope({ includeCountdowns: value })" />
+      </div>
+    </div>
+
+    <p v-if="fc.lastError" class="hint error">上次同步失败：{{ fc.lastError }}</p>
+    <p v-if="fc.enabled" class="hint">
+      关闭只停止维护，飞书里的日历和已有日程会保留，可以自己删。同步是单向的：在飞书里改日程不会回写任务。
     </p>
   </div>
 </template>
@@ -60,8 +110,9 @@ import SettingSwitch from './SettingSwitch.vue'
 import { message } from '../../services/message.js'
 import { copyText } from '../../utils/clipboard.js'
 import {
-  apiCreateTaskFeedToken, apiGetTaskFeedToken, apiGetTaskSettings, apiRevokeTaskFeedToken,
-  apiRotateTaskFeedToken, apiUpdateTaskSettings
+  apiCreateTaskFeedToken, apiFeishuCalendarDisable, apiFeishuCalendarEnable, apiFeishuCalendarScope,
+  apiFeishuCalendarStatus, apiFeishuCalendarSync, apiGetTaskFeedToken, apiGetTaskSettings,
+  apiRevokeTaskFeedToken, apiRotateTaskFeedToken, apiUpdateTaskSettings
 } from '../../../packages/api-client/src/index.js'
 
 const feed = reactive({ active: false, hint: '', createdAt: null, lastAccessedAt: null })
@@ -189,9 +240,90 @@ async function copy() {
   }
 }
 
+// ---------------------------------------------------------------- 飞书日历同步
+
+const fc = reactive({
+  configured: false, bound: false, enabled: false, calendarId: '',
+  lastSyncedAt: null, lastEventCount: 0, lastError: null,
+  includeTasks: true, includeCountdowns: true
+})
+const fcBusy = ref(false)
+
+async function loadFeishu() {
+  try {
+    Object.assign(fc, await apiFeishuCalendarStatus())
+  } catch {
+    // 后端未升级到带日历同步的版本时，这张卡保持未开启状态
+  }
+}
+
+async function enableFeishu() {
+  if (fcBusy.value) return
+  fcBusy.value = true
+  try {
+    const result = await apiFeishuCalendarEnable()
+    await loadFeishu()
+    message.success(`已在飞书创建日历并写入 ${result?.total ?? 0} 条日程，左侧勾选「WorkBoard」就能看到`)
+  } catch (error) {
+    await loadFeishu()
+    message.error(error?.response?.data?.detail || '开启失败，请确认已绑定飞书账号并已开通日历权限')
+  } finally {
+    fcBusy.value = false
+  }
+}
+
+async function syncFeishu() {
+  if (fcBusy.value) return
+  fcBusy.value = true
+  try {
+    const result = await apiFeishuCalendarSync()
+    await loadFeishu()
+    message.success(`同步完成：新增 ${result?.created ?? 0}、更新 ${result?.updated ?? 0}、移除 ${result?.deleted ?? 0}`)
+  } catch (error) {
+    await loadFeishu()
+    message.error(error?.response?.data?.detail || '同步失败')
+  } finally {
+    fcBusy.value = false
+  }
+}
+
+async function disableFeishu() {
+  if (!window.confirm('关闭后不再同步新改动，飞书里的日历和已有日程不会被删除。确定关闭？')) return
+  fcBusy.value = true
+  try {
+    await apiFeishuCalendarDisable()
+    await loadFeishu()
+    message.success('已关闭飞书日历同步')
+  } catch (error) {
+    message.error(error?.response?.data?.detail || '关闭失败')
+  } finally {
+    fcBusy.value = false
+  }
+}
+
+async function updateScope(patch) {
+  if (fcBusy.value) return
+  const previous = { includeTasks: fc.includeTasks, includeCountdowns: fc.includeCountdowns }
+  Object.assign(fc, patch)
+  fcBusy.value = true
+  try {
+    Object.assign(fc, await apiFeishuCalendarScope(patch))
+    // 改完范围立刻重算一次，否则要等下一个 5 分钟节拍才有变化
+    const result = await apiFeishuCalendarSync()
+    await loadFeishu()
+    message.success(`已更新：新增 ${result?.created ?? 0}、移除 ${result?.deleted ?? 0}`)
+  } catch (error) {
+    Object.assign(fc, previous)
+    message.error(error?.response?.data?.detail || '保存失败')
+  } finally {
+    fcBusy.value = false
+  }
+}
+
 onMounted(() => {
   load()
   loadSettings()
+  loadFeishu()
 })
 </script>
 
@@ -223,6 +355,8 @@ onMounted(() => {
   line-height: 1.9;
 }
 .feed-steps b { color: var(--ink); font-weight: 600; }
+.feishu-calendar .hint { margin: 0 0 12px; color: var(--muted); font-size: 11.5px; line-height: 1.7; }
+.feishu-calendar .hint.error { color: var(--danger, #d64545); }
 @media (max-width: 900px) {
   .feed-url { flex-direction: column; align-items: stretch; }
   .feed-url :deep(button) { min-height: 36px; }

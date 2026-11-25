@@ -118,6 +118,42 @@ public class FeishuClient {
         return node == null ? mapper.createObjectNode() : node;
     }
 
+    /** 通用 GET，返回响应里的 data 节点。 */
+    public JsonNode apiGet(String path) {
+        JsonNode node = client.get().uri(BASE + path)
+                .header("Authorization", "Bearer " + tenantAccessToken())
+                .retrieve()
+                .body(JsonNode.class);
+        check(node, path);
+        return node.path("data");
+    }
+
+    /** 通用 POST，返回响应里的 data 节点。 */
+    public JsonNode apiPost(String path, Map<String, Object> body) {
+        return post(path, body).path("data");
+    }
+
+    /** 通用 PATCH，返回响应里的 data 节点。 */
+    public JsonNode apiPatch(String path, Map<String, Object> body) {
+        JsonNode node = client.patch().uri(BASE + path)
+                .header("Authorization", "Bearer " + tenantAccessToken())
+                .header("Content-Type", "application/json; charset=utf-8")
+                .body(json(body))
+                .retrieve()
+                .body(JsonNode.class);
+        check(node, path);
+        return node.path("data");
+    }
+
+    /** 通用 DELETE。 */
+    public void apiDelete(String path) {
+        JsonNode node = client.delete().uri(BASE + path)
+                .header("Authorization", "Bearer " + tenantAccessToken())
+                .retrieve()
+                .body(JsonNode.class);
+        check(node, path);
+    }
+
     private void check(JsonNode node, String action) {
         if (node == null) throw new IllegalStateException(action + "：飞书无响应");
         int code = node.path("code").asInt(0);

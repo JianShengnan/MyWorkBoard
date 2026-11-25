@@ -398,3 +398,10 @@ export async function apiListPushDeliveries(limit = 20) { return data(await api.
 export async function apiFeishuStatus() { return data(await api.get('/api/v1/feishu/status')) }
 export async function apiFeishuBindCode() { return data(await api.post('/api/v1/feishu/bind-code')) }
 export async function apiFeishuUnbind() { return data(await api.delete('/api/v1/feishu/binding')) }
+
+// 飞书日历同步：飞书不支持 ICS 订阅，改由应用把任务/倒数日写进共享日历
+export async function apiFeishuCalendarStatus() { return data(await api.get('/api/v1/feishu/calendar/status')) }
+export async function apiFeishuCalendarEnable() { return data(await api.post('/api/v1/feishu/calendar/enable')) }
+export async function apiFeishuCalendarSync() { return data(await api.post('/api/v1/feishu/calendar/sync')) }
+export async function apiFeishuCalendarScope(payload) { return data(await api.put('/api/v1/feishu/calendar/scope', payload)) }
+export async function apiFeishuCalendarDisable() { return data(await api.delete('/api/v1/feishu/calendar')) }
