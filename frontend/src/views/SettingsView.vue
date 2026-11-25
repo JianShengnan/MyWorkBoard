@@ -252,6 +252,7 @@ import Button from '../components/ui/Button.vue'
 import Dialog from '../components/ui/Dialog.vue'
 import AgentEntrySettings from '../components/settings/AgentEntrySettings.vue'
 import SettingsPushPane from '../components/settings/SettingsPushPane.vue'
+import { useRoute } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { CALC } from '../utils/calc'
 import { copyText } from '../utils/clipboard.js'
@@ -266,7 +267,11 @@ const settingModules = [
   { key: 'push', label: '推送提醒' },
   { key: 'account', label: '账号' },
 ]
-const activeModule = ref('general')
+// 允许从别处带 ?module=push 直接落到某个设置模块（提醒页的「去配置手机推送」就是这么跳的）
+const route = useRoute()
+const activeModule = ref(
+  settingModules.some(item => item.key === route.query.module) ? String(route.query.module) : 'general'
+)
 const accents = [
   { key: 'sun', label: '日光', color: '#ffd22e' },
   { key: 'ocean', label: '海洋', color: '#68d5cf' },
