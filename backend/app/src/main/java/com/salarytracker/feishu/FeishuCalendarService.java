@@ -42,9 +42,11 @@ public class FeishuCalendarService {
     private static final int TASK_FUTURE_DAYS = 45;
     private static final int COUNTDOWN_PAST_DAYS = 7;
     private static final int COUNTDOWN_FUTURE_DAYS = 365;
-    /** 单次同步的事件上限，配合 20ms 间隔把一轮控制在 15 秒内。 */
+    /** 单次同步的事件上限。 */
     private static final int MAX_EVENTS = 500;
-    private static final long CALL_GAP_MILLIS = 20;
+    /** 飞书日历接口对写操作限流很紧（实测 20ms 间隔十几条就 190010），200ms 一条稳得住。 */
+    private static final long CALL_GAP_MILLIS = 200;
+    private static final int MAX_RETRIES = 4;
 
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
@@ -177,14 +179,17 @@ public class FeishuCalendarService {
                 Row row = existing.get(item.key());
                 String fingerprint = item.fingerprint();
                 if (row == null) {
-                    String eventId = createEvent(calendarId, item, zone);
+                    String eventId = withRetry(() -> createEvent(calendarId, item, zone));
                     jdbc.update("INSERT INTO feishu_calendar_event(user_id,event_key,feishu_event_id,fingerprint) " +
                                     "VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE feishu_event_id=?,fingerprint=?",
                             userId, item.key(), eventId, fingerprint, eventId, fingerprint);
                     created += 1;
                     pause();
                 } else if (!fingerprint.equals(row.fingerprint())) {
-                    patchEvent(calendarId, row.eventId(), item, zone);
+                    withRetry(() -> {
+                        patchEvent(calendarId, row.eventId(), item, zone);
+                        return null;
+                    });
                     jdbc.update("UPDATE feishu_calendar_event SET fingerprint=?,synced_at=CURRENT_TIMESTAMP(3) " +
                             "WHERE user_id=? AND event_key=?", fingerprint, userId, item.key());
                     updated += 1;
@@ -193,7 +198,10 @@ public class FeishuCalendarService {
             }
             for (Row row : existing.values()) {
                 if (kept.contains(row.eventKey())) continue;
-                deleteEvent(calendarId, row.eventId());
+                withRetry(() -> {
+                    deleteEvent(calendarId, row.eventId());
+                    return null;
+                });
                 jdbc.update("DELETE FROM feishu_calendar_event WHERE user_id=? AND event_key=?",
                         userId, row.eventKey());
                 deleted += 1;
@@ -412,6 +420,37 @@ public class FeishuCalendarService {
         } catch (Exception exception) {
             throw new IllegalStateException("指纹计算失败", exception);
         }
+    }
+
+    /**
+     * 写操作遇到限流时退避重试：飞书日历 API 的 QPS 限制比 IM 接口低得多，
+     * 一次同步几十条必然撞上 190010。POST 失败时事件并未创建，重试不会重复；PATCH/DELETE 本身幂等。
+     */
+    private <T> T withRetry(java.util.function.Supplier<T> action) {
+        RuntimeException last = null;
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
+            try {
+                return action.get();
+            } catch (RuntimeException exception) {
+                last = exception;
+                if (!rateLimited(exception)) throw exception;
+                long wait = 800L * (attempt + 1) * (attempt + 1);
+                log.debug("飞书日历限流，{} ms 后重试", wait);
+                try {
+                    Thread.sleep(wait);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw exception;
+                }
+            }
+        }
+        throw last == null ? new IllegalStateException("飞书日历调用失败") : last;
+    }
+
+    private static boolean rateLimited(RuntimeException exception) {
+        String message = exception.getMessage();
+        if (message == null) return false;
+        return message.contains("190010") || message.contains("429") || message.contains("rate limited");
     }
 
     private static void pause() {
