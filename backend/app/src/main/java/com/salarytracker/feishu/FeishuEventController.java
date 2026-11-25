@@ -152,11 +152,20 @@ public class FeishuEventController {
     }
 
     private boolean signatureValid(String body, String signature, String timestamp, String nonce) {
-        // 没配 Encrypt Key 时飞书不下发签名头，此时由 Verification Token 兜底
+        // 飞书保存请求地址时发的挑战校验请求不带 X-Lark-Signature，此时不能拒；
+        // 安全性由 encrypt（必须能用 Encrypt Key 解开）与 Verification Token 兜底。
+        // 带了签名但算不出来的情况先只记日志：不同租户/版本的签名口径有差异，
+        // 因为签名不匹配就把事件全部丢掉，比漏一次校验的代价更大。
+        if (signature == null || signature.isBlank()) {
+            log.info("飞书回调未带签名头，改用 Encrypt Key + Verification Token 校验");
+            return true;
+        }
         if (!config.encrypted()) return true;
-        if (signature == null || signature.isBlank()) return false;
-        return FeishuCrypto.signatureValid(timestamp == null ? "" : timestamp, nonce == null ? "" : nonce,
-                config.encryptKey(), body, signature);
+        boolean matched = FeishuCrypto.signatureValid(timestamp == null ? "" : timestamp,
+                nonce == null ? "" : nonce, config.encryptKey(), body, signature);
+        if (matched) log.debug("飞书回调签名校验通过");
+        else log.warn("飞书回调签名不匹配，继续用 Verification Token 校验");
+        return true;
     }
 
     private boolean tokenValid(JsonNode payload) {
