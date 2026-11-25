@@ -38,17 +38,21 @@ public class TaskFeedService {
         this.currentUser = currentUser;
     }
 
-    public FeedToken status() {
-        List<FeedToken> rows = jdbc.query("SELECT token_hint,created_at,last_accessed_at FROM task_feed_token " +
-                        "WHERE user_id=? AND revoked_at IS NULL ORDER BY id DESC LIMIT 1",
-                (result, row) -> new FeedToken(true, result.getString(1), null,
-                        instant(result.getTimestamp(2)), instant(result.getTimestamp(3))), currentUser.id());
+    /**
+     * 订阅状态。地址原文会一起返回：只存哈希时，用户刷新页面就再也看不到地址，
+     * 想复制只能重新生成，旧地址立即失效——这个代价比「数据库里多一个只读令牌」更大。
+     */
+    public FeedToken status(String baseUrl) {
+        List<FeedToken> rows = jdbc.query("SELECT token_hint,token_value,created_at,last_accessed_at " +
+                        "FROM task_feed_token WHERE user_id=? AND revoked_at IS NULL ORDER BY id DESC LIMIT 1",
+                (result, row) -> new FeedToken(true, result.getString(1), url(baseUrl, result.getString(2)),
+                        instant(result.getTimestamp(3)), instant(result.getTimestamp(4))), currentUser.id());
         return rows.isEmpty() ? new FeedToken(false, null, null, null, null) : rows.get(0);
     }
 
     @Transactional
     public FeedToken create(String baseUrl) {
-        if (status().active()) throw new IllegalStateException("已有有效订阅地址，请使用轮换");
+        if (status(baseUrl).active()) throw new IllegalStateException("已有有效订阅地址，请使用轮换");
         return issue(baseUrl);
     }
 
@@ -125,6 +129,7 @@ public class TaskFeedService {
         appendCountdowns(out, owner.userId(), zone);
         appendHabits(out, owner.userId(), zone);
         appendWorkRecords(out, owner.userId(), zone);
+        appendLedger(out, owner.userId(), zone);
         return out.append("END:VCALENDAR\r\n").toString();
     }
 
@@ -317,6 +322,68 @@ public class TaskFeedService {
         }
     }
 
+    /**
+     * 账目流水：最近 90 天，每笔一条全天事件，标题带金额，分类进 CATEGORIES。
+     * 只导真正的收支，账户间转账（TRANSFER / TRANSFER_IN / TRANSFER_OUT）跳过——
+     * 同一笔钱在日历里出现两次且没有收支含义。
+     */
+    private void appendLedger(StringBuilder out, long userId, ZoneId zone) {
+        LocalDate since = LocalDate.now(zone).minusDays(90);
+        List<LedgerEvent> rows = jdbc.query("SELECT t.public_id,t.kind,t.amount,t.currency,t.occurred_on," +
+                        "t.payee,t.note,t.member_name,COALESCE(c.name,''),COALESCE(a.name,'') " +
+                        "FROM ledger_transaction t " +
+                        "LEFT JOIN ledger_category c ON c.id=t.category_id " +
+                        "LEFT JOIN ledger_account a ON a.id=t.account_id " +
+                        "WHERE t.user_id=? AND t.deleted=FALSE AND t.occurred_on>=? " +
+                        "AND t.kind IN ('EXPENSE','INCOME','BORROW_IN','LEND_OUT','COLLECT_DEBT','REPAY_DEBT') " +
+                        "ORDER BY t.occurred_on DESC,t.id DESC",
+                (result, row) -> new LedgerEvent(result.getString(1), result.getString(2),
+                        result.getBigDecimal(3), result.getString(4), result.getDate(5).toLocalDate(),
+                        result.getString(6), result.getString(7), result.getString(8),
+                        result.getString(9), result.getString(10)), userId, Date.valueOf(since));
+        String stamp = ICS_TIME.format(Instant.now());
+        for (LedgerEvent item : rows) {
+            boolean income = !"EXPENSE".equals(item.kind());
+            String amount = money(item.currency(), item.amount());
+            String label = item.payee() != null && !item.payee().isBlank() ? item.payee().trim()
+                    : (!item.category().isBlank() ? item.category() : (income ? "收入" : "支出"));
+            out.append("BEGIN:VEVENT\r\nUID:").append(item.publicId()).append("@ledger\r\n")
+                    .append("DTSTAMP:").append(stamp).append("\r\n")
+                    .append("DTSTART;VALUE=DATE:").append(ICS_DATE.format(item.day())).append("\r\n")
+                    .append("DTEND;VALUE=DATE:").append(ICS_DATE.format(item.day().plusDays(1))).append("\r\n")
+                    .append("SUMMARY:").append(escape(label + " " + (income ? "+" : "") + amount)).append("\r\n")
+                    .append("CATEGORIES:").append(escape(item.category().isBlank()
+                            ? (income ? "收入" : "支出") : item.category())).append("\r\n")
+                    .append("DESCRIPTION:").append(escape(ledgerDescription(item, amount))).append("\r\n")
+                    // 记账是已发生的事实，不该让日历显示为忙碌
+                    .append("TRANSP:TRANSPARENT\r\nSTATUS:CONFIRMED\r\nEND:VEVENT\r\n");
+        }
+    }
+
+    private String ledgerDescription(LedgerEvent item, String amount) {
+        StringBuilder description = new StringBuilder("金额：").append(amount)
+                .append("（").append(switch (item.kind()) {
+                    case "INCOME" -> "收入";
+                    case "BORROW_IN" -> "借入";
+                    case "LEND_OUT" -> "借出";
+                    case "COLLECT_DEBT" -> "收回借款";
+                    case "REPAY_DEBT" -> "还款";
+                    default -> "支出";
+                }).append("）");
+        if (!item.category().isBlank()) description.append("\n分类：").append(item.category());
+        if (!item.account().isBlank()) description.append("\n账户：").append(item.account());
+        if (item.member() != null && !item.member().isBlank()) description.append("\n成员：").append(item.member());
+        if (item.payee() != null && !item.payee().isBlank()) description.append("\n商户：").append(item.payee());
+        if (item.note() != null && !item.note().isBlank()) description.append("\n备注：").append(item.note().trim());
+        return description.toString();
+    }
+
+    private String money(String currency, java.math.BigDecimal amount) {
+        String symbol = currency == null || "CNY".equals(currency) ? "¥" : currency + " ";
+        return symbol + new java.text.DecimalFormat("#,##0.00").format(amount == null
+                ? java.math.BigDecimal.ZERO : amount);
+    }
+
     private String priorityLabel(String priority) {
         if (priority == null) return "";
         return switch (priority) {
@@ -339,10 +406,13 @@ public class TaskFeedService {
         byte[] bytes = new byte[32]; random.nextBytes(bytes);
         String raw = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
         String hint = raw.substring(0, 4) + "…" + raw.substring(raw.length() - 4);
-        jdbc.update("INSERT INTO task_feed_token(user_id,token_hash,token_hint) VALUES(?,?,?)",
-                currentUser.id(), hash(raw), hint);
-        return new FeedToken(true, hint, baseUrl + "/api/v1/tasks/feed/" + raw + ".ics",
-                Instant.now().toString(), null);
+        jdbc.update("INSERT INTO task_feed_token(user_id,token_hash,token_hint,token_value) VALUES(?,?,?,?)",
+                currentUser.id(), hash(raw), hint, raw);
+        return new FeedToken(true, hint, url(baseUrl, raw), Instant.now().toString(), null);
+    }
+
+    private String url(String baseUrl, String raw) {
+        return raw == null || raw.isBlank() ? null : baseUrl + "/api/v1/tasks/feed/" + raw + ".ics";
     }
 
     private void limit(String address, String hash) {
@@ -373,5 +443,8 @@ public class TaskFeedService {
                               LocalDate startDate, int intervalDays, int targetCount) { }
     private record WorkEvent(long id, LocalDate day, LocalTime startTime, LocalTime endTime,
                              int restMinutes, int overtimeMinutes, String note) { }
+    private record LedgerEvent(String publicId, String kind, java.math.BigDecimal amount, String currency,
+                               LocalDate day, String payee, String note, String member,
+                               String category, String account) { }
     private record Window(long hour, int count) { }
 }

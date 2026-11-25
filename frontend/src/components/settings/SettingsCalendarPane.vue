@@ -33,12 +33,13 @@
     </div>
 
     <div v-if="url" class="feed-url">
-      <code>{{ url }}</code>
+      <code ref="codeRef">{{ url }}</code>
       <Button size="sm" variant="ghost" @click="copy">复制</Button>
     </div>
     <p v-else-if="feed.active" class="hint">
-      地址里带访问令牌，只在生成时显示一次。忘了就点「重新生成」，旧地址立即失效。
+      这条地址是旧版本生成的，服务端只留了摘要，无法回显。点「重新生成」会得到一条随时可查看的新地址，旧地址立即失效。
     </p>
+    <p v-else class="hint">还没有生成地址。生成后可以随时回到这里查看和复制。</p>
 
     <ol class="feed-steps">
       <li><b>飞书</b>：日历 → 左侧「添加日历」→「订阅日历」→ 粘贴地址 → 订阅。订阅来的日历只读，颜色可自选。</li>
@@ -65,6 +66,7 @@ import {
 
 const feed = reactive({ active: false, hint: '', createdAt: null, lastAccessedAt: null })
 const url = ref('')
+const codeRef = ref(null)
 const busy = ref(false)
 const includeDescription = ref(false)
 const savingDescription = ref(false)
@@ -87,6 +89,8 @@ async function load() {
     feed.createdAt = data?.createdAt || null
     feed.lastAccessedAt = data?.lastAccessedAt || null
     lastAccessed.value = formatTime(data?.lastAccessedAt)
+    // 地址随状态一起返回，刷新页面后仍能看到并复制，不必重新生成
+    if (data?.url) url.value = data.url
     if (!feed.active) url.value = ''
   } catch {
     // 后端还没升级到带订阅接口的版本时，整块保持空态，不影响其它设置
@@ -170,6 +174,17 @@ async function copy() {
     await copyText(url.value)
     message.success('已复制')
   } catch {
+    // 剪贴板被浏览器策略拦住时，至少把地址选中，用户按一次 Cmd/Ctrl+C 就能带走
+    const node = codeRef.value
+    if (node && typeof window !== 'undefined' && window.getSelection) {
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const selection = window.getSelection()
+      selection.removeAllRanges()
+      selection.addRange(range)
+      message.error('浏览器拦截了自动复制，地址已选中，请按 Cmd/Ctrl + C')
+      return
+    }
     message.error('复制失败，请手动选中地址')
   }
 }

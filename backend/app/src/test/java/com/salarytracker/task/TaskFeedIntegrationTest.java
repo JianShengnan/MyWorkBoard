@@ -48,7 +48,9 @@ class TaskFeedIntegrationTest extends MySqlIntegrationTestSupport {
         assertThrows(RuntimeException.class, () -> feeds.feed(raw, "127.0.0.1"));
         String next = rotated.feedUrl().substring(rotated.feedUrl().lastIndexOf('/') + 1).replace(".ics", "");
         assertTrue(feeds.feed(next, "127.0.0.1").contains("公开标题"));
-        assertNotNull(feeds.status().lastAccessedAt());
+        assertNotNull(feeds.status("https://work.example").lastAccessedAt());
+        // 刷新页面后必须还能看到地址，否则用户想复制只能重新生成（旧地址立即失效）
+        assertTrue(feeds.status("https://work.example").feedUrl().endsWith(".ics"));
         feeds.revoke();
         assertThrows(RuntimeException.class, () -> feeds.feed(next, "127.0.0.1"));
     }
@@ -92,6 +94,44 @@ class TaskFeedIntegrationTest extends MySqlIntegrationTestSupport {
         assertTrue(calendar.contains("CATEGORIES:工时"));
         assertTrue(calendar.contains("TRANSP:OPAQUE"));
         assertFalse(calendar.contains("VTODO"));
+    }
+
+    @Test
+    void feedExportsLedgerTransactionsButSkipsTransfers() {
+        long userId = createUser();
+        CurrentUserResolver resolver = mock(CurrentUserResolver.class);
+        when(resolver.id()).thenReturn(userId);
+        TaskService tasks = new TaskService(jdbc, resolver, new TaskChangeLog(jdbc, new ObjectMapper().findAndRegisterModules()));
+        tasks.createList(new TaskModels.TaskListCommand("订阅", null, null, 1, false), "feed-ledger");
+        jdbc.update("INSERT INTO ledger_book(public_id,owner_user_id,name) VALUES(?,?,?)",
+                UUID.randomUUID().toString(), userId, "生活账本");
+        long bookId = jdbc.queryForObject("SELECT id FROM ledger_book WHERE owner_user_id=?", Long.class, userId);
+        jdbc.update("INSERT INTO ledger_account(public_id,book_id,user_id,created_by,name) VALUES(?,?,?,?,?)",
+                UUID.randomUUID().toString(), bookId, userId, userId, "微信");
+        long accountId = jdbc.queryForObject("SELECT id FROM ledger_account WHERE user_id=?", Long.class, userId);
+        String expense = UUID.randomUUID().toString();
+        String transfer = UUID.randomUUID().toString();
+        insertTransaction(bookId, userId, accountId, expense, "EXPENSE", "35.00", "午饭", "2026-11-24");
+        insertTransaction(bookId, userId, accountId, transfer, "TRANSFER_OUT", "200.00", "转出", "2026-11-24");
+        TaskFeedService feeds = new TaskFeedService(jdbc, resolver);
+        String raw = feeds.create("https://work.example").feedUrl();
+        raw = raw.substring(raw.lastIndexOf('/') + 1).replace(".ics", "");
+
+        String calendar = feeds.feed(raw, "127.0.0.1");
+        assertTrue(calendar.contains("UID:" + expense + "@ledger"));
+        assertTrue(calendar.contains("SUMMARY:午饭 ¥35.00"));
+        assertTrue(calendar.contains("CATEGORIES:支出"));
+        assertTrue(calendar.contains("账户：微信"));
+        assertTrue(calendar.contains("DTSTART;VALUE=DATE:20261124"));
+        // 账户间转账不是收支，同一笔钱会出现两腿，必须排除
+        assertFalse(calendar.contains(transfer + "@ledger"));
+    }
+
+    private void insertTransaction(long bookId, long userId, long accountId, String publicId,
+                                   String kind, String amount, String payee, String day) {
+        jdbc.update("INSERT INTO ledger_transaction(public_id,book_id,user_id,account_id,kind,amount,occurred_on," +
+                        "payee,created_by) VALUES(?,?,?,?,?,?,?,?,?)", publicId, bookId, userId, accountId, kind,
+                new java.math.BigDecimal(amount), java.sql.Date.valueOf(day), payee, userId);
     }
 
     private long createUser() {

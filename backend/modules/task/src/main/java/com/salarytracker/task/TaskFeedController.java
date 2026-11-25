@@ -30,7 +30,7 @@ public class TaskFeedController {
     @GetMapping("/token")
     @PreAuthorize("hasAuthority('task:read')")
     @Operation(operationId = "getTaskFeedToken")
-    public ApiResponse<FeedToken> status() { return ApiResponse.ok(feeds.status()); }
+    public ApiResponse<FeedToken> status() { return ApiResponse.ok(feeds.status(baseUrl())); }
 
     @PostMapping("/token")
     @PreAuthorize("hasAuthority('task:write')")
