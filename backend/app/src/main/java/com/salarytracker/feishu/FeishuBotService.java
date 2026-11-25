@@ -23,6 +23,8 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 飞书私聊的消息处理：绑定、帮助、以及把普通文本交给站内的 AI 助手。
@@ -156,34 +158,138 @@ public class FeishuBotService {
             return;
         }
         String sessionId = ensureSession(binding);
-        StringBuilder tools = new StringBuilder();
-        LlmGateway.ChatResponse response = runAs(user, () -> orchestrator.chatStreamingForUser(
-                sessionId, binding.userId(), text, new AgentOrchestrator.StreamListener() {
-                    @Override
-                    public void delta(String content) {
-                        // 飞书这条链路不做流式刷新，等整段结果一次发，避免卡片闪烁
-                    }
+        String link = "http://jsn1024.cn/agent?session=" + sessionId;
+        // 先占位再流式刷新：飞书没有 SSE，只能靠 PATCH 同一张卡片来「边说边显示」
+        LiveCard live = openLiveCard(incoming, link);
+        LlmGateway.ChatResponse response;
+        try {
+            response = runAs(user, () -> orchestrator.chatStreamingForUser(
+                    sessionId, binding.userId(), text, new AgentOrchestrator.StreamListener() {
+                        @Override
+                        public void delta(String content) {
+                            // 增量直接喂给卡片；节流与推送节拍由 LiveCard 自己控制
+                            if (live != null) live.append(content);
+                        }
 
-                    @Override
-                    public void toolStarted(String name) {
-                        tools.append(name).append(' ');
-                    }
+                        @Override
+                        public void toolStarted(String name) {
+                        }
 
-                    @Override
-                    public void toolCompleted(LlmGateway.ToolExecution execution) {
-                    }
-                }));
+                        @Override
+                        public void toolCompleted(LlmGateway.ToolExecution execution) {
+                        }
+                    }));
+        } catch (RuntimeException exception) {
+            if (live != null) live.replace(cards.notice("出了点问题", brief(exception), "red"));
+            throw exception;
+        }
         String content = response == null ? "" : response.content();
         if (content == null || content.isBlank()) content = "这次没想出来怎么回答，换个说法试试？";
         boolean pending = response != null && !response.actions().isEmpty();
-        String link = "http://jsn1024.cn/agent?session=" + sessionId;
-        if (pending) {
-            client.replyCard(incoming.messageId(), cards.noticeWithAction("需要你确认一下",
-                    content + "\n\n写操作要先批准才会生效。", "orange", "去审批", "http://jsn1024.cn/approvals"));
-        } else {
-            client.replyCard(incoming.messageId(), cards.answer(firstLine(text), content, link));
-        }
+        com.fasterxml.jackson.databind.node.ObjectNode card = pending
+                ? cards.noticeWithAction("需要你确认一下",
+                        content + "\n\n写操作要先批准才会生效。", "orange", "去审批", "http://jsn1024.cn/approvals")
+                : cards.answer(firstLine(text), content, link);
+        if (live != null) live.finish(card);
+        else client.replyCard(incoming.messageId(), card);
         jdbc.update("UPDATE feishu_binding SET last_message_at=CURRENT_TIMESTAMP(3) WHERE open_id=?", incoming.openId());
+    }
+
+    /** 发一张「正在思考」的卡片拿到 message_id；拿不到就走一次性回复，不影响功能。 */
+    private LiveCard openLiveCard(Incoming incoming, String link) {
+        try {
+            String cardId = client.replyCard(incoming.messageId(), cards.streaming("", link));
+            if (cardId == null || cardId.isBlank()) return null;
+            return new LiveCard(incoming.messageId(), cardId, link);
+        } catch (Exception exception) {
+            log.debug("流式占位卡片发送失败，退回一次性回复：{}", exception.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 一张「会长大」的卡片。
+     *
+     * <p>飞书单条卡片更新限 5 QPS，所以固定 900ms 一拍，把当前累积的正文推上去；
+     * 帧与帧之间不排队——上一帧没回来就跳过这一拍，永远只推最新快照，省得积压。</p>
+     */
+    private final class LiveCard {
+        private final String sourceMessageId;
+        private final String messageId;
+        private final String link;
+        private final StringBuffer text = new StringBuffer();
+        private final ScheduledExecutorService pump;
+        private final Object lock = new Object();
+        private volatile String pushed = "";
+        private volatile boolean closed;
+
+        LiveCard(String sourceMessageId, String messageId, String link) {
+            this.sourceMessageId = sourceMessageId;
+            this.messageId = messageId;
+            this.link = link;
+            this.pump = Executors.newSingleThreadScheduledExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "feishu-card");
+                thread.setDaemon(true);
+                return thread;
+            });
+            this.pump.scheduleWithFixedDelay(this::tick, 900, 900, TimeUnit.MILLISECONDS);
+        }
+
+        void append(String delta) {
+            if (delta == null || delta.isEmpty() || closed) return;
+            synchronized (text) {
+                text.append(delta);
+            }
+        }
+
+        private void tick() {
+            if (closed) return;
+            synchronized (lock) {
+                if (closed) return;
+                String snapshot;
+                synchronized (text) {
+                    snapshot = text.toString();
+                }
+                if (snapshot.isBlank() || snapshot.equals(pushed)) return;
+                pushed = snapshot;
+                try {
+                    client.patchCard(messageId, cards.streaming(snapshot, link));
+                } catch (Exception exception) {
+                    // 限频（230020）或网络抖动只影响这一帧，下一拍会带最新文本重来
+                    log.debug("卡片流式刷新失败：{}", exception.getMessage());
+                }
+            }
+        }
+
+        /** 用最终卡片覆盖；覆盖不上就补发一条，保证用户一定能看到回答。 */
+        void finish(com.fasterxml.jackson.databind.node.ObjectNode card) {
+            closed = true;
+            pump.shutdownNow();
+            synchronized (lock) {
+                try {
+                    client.patchCard(messageId, card);
+                } catch (Exception exception) {
+                    log.warn("最终卡片更新失败，改为补发一条：{}", exception.getMessage());
+                    try {
+                        client.replyCard(sourceMessageId, card);
+                    } catch (Exception fallback) {
+                        log.warn("补发最终卡片也失败：{}", fallback.getMessage());
+                    }
+                }
+            }
+        }
+
+        void replace(com.fasterxml.jackson.databind.node.ObjectNode card) {
+            closed = true;
+            pump.shutdownNow();
+            synchronized (lock) {
+                try {
+                    client.patchCard(messageId, card);
+                } catch (Exception exception) {
+                    log.warn("错误卡片更新失败：{}", exception.getMessage());
+                }
+            }
+        }
     }
 
     /** 会话被网页删掉后绑定还在，这里补建一个，避免用户说话突然没反应。 */

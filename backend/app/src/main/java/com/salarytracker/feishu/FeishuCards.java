@@ -32,6 +32,21 @@ public class FeishuCards {
         return card;
     }
 
+    /**
+     * 流式输出中的中间帧：结构与 {@link #answer} 完全一致（同样的标题栏、分隔线、按钮），
+     * 这样最后替换成正式回答时卡片不会跳版，只看到正文在长。
+     */
+    public ObjectNode streaming(String markdown, String link) {
+        ObjectNode card = base("WorkBoard 助手", "blue");
+        ArrayNode elements = (ArrayNode) card.get("elements");
+        String body = markdown == null || markdown.isBlank()
+                ? "正在思考…" : markdown + " ▍";
+        elements.add(markdown(trim(body)));
+        elements.add(hr());
+        elements.add(buttons(action("在网页继续这个会话", link, "default")));
+        return card;
+    }
+
     /** 一句提示（绑定成功、帮助、错误） */
     public ObjectNode notice(String title, String body, String template) {
         ObjectNode card = base(title, template);
@@ -70,6 +85,9 @@ public class FeishuCards {
         ObjectNode card = mapper.createObjectNode();
         ObjectNode config = card.putObject("config");
         config.put("wide_screen_mode", true);
+        // PATCH /im/v1/messages/:id 更新卡片要求原卡片与更新后的卡片都声明 update_multi=true，
+        // 否则共享卡片更新会静默失败（本人能看到，别人看不到）。这里统一加上。
+        config.put("update_multi", true);
         ObjectNode header = card.putObject("header");
         header.put("template", template);
         ObjectNode headerTitle = header.putObject("title");

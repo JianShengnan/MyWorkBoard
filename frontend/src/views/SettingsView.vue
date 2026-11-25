@@ -22,6 +22,8 @@
 
     <SettingsPushPane v-show="activeModule === 'push'" />
 
+    <SettingsCalendarPane v-show="activeModule === 'calendar'" />
+
     <div v-show="activeModule === 'account'" class="card set-group account-settings">
       <h2>账号</h2>
       <div class="row">
@@ -252,6 +254,7 @@ import Button from '../components/ui/Button.vue'
 import Dialog from '../components/ui/Dialog.vue'
 import AgentEntrySettings from '../components/settings/AgentEntrySettings.vue'
 import SettingsPushPane from '../components/settings/SettingsPushPane.vue'
+import SettingsCalendarPane from '../components/settings/SettingsCalendarPane.vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { CALC } from '../utils/calc'
@@ -265,6 +268,7 @@ const settingModules = [
   { key: 'operations', label: '运行质量' },
   { key: 'mcp', label: 'MCP / 外部 Agent' },
   { key: 'push', label: '推送提醒' },
+  { key: 'calendar', label: '日历订阅' },
   { key: 'account', label: '账号' },
 ]
 // 允许从别处带 ?module=push 直接落到某个设置模块（提醒页的「去配置手机推送」就是这么跳的）
