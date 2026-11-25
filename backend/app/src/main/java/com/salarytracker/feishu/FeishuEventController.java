@@ -99,8 +99,18 @@ public class FeishuEventController {
             return ResponseEntity.badRequest().body(Map.of("error", "invalid payload"));
         }
         if (payload == null) return ResponseEntity.ok(Map.of("toast", toast("info", "收到")));
-        String openId = payload.path("open_id").asText("");
-        JsonNode action = payload.path("action");
+        // 「回调配置」页保存地址时走的是同一个 url_verification 挑战，必须原样返回 challenge，
+        // 否则控制台会一直提示「Challenge code 没有返回」。这一步要早于任何业务分支。
+        if ("url_verification".equals(payload.path("type").asText())) {
+            log.info("飞书卡片回调通过挑战校验");
+            return ResponseEntity.ok(Map.of("challenge", payload.path("challenge").asText("")));
+        }
+        // 卡片回传有两代 schema：1.0 把 open_id / action 放在顶层，2.0（card.action.trigger）
+        // 放在 event.operator / event.action 里，两种都要认。
+        JsonNode event = payload.path("event");
+        String openId = firstNonBlank(payload.path("open_id").asText(""),
+                event.path("operator").path("open_id").asText(""));
+        JsonNode action = payload.has("action") ? payload.path("action") : event.path("action");
         String name = action.path("value").path("action").asText("");
         String value = action.path("value").path("payload").asText("");
         jdbc.update("INSERT INTO feishu_card_action(open_id,action,payload,result) VALUES(?,?,?,?)",
@@ -116,6 +126,13 @@ public class FeishuEventController {
         toast.put("type", type);
         toast.put("content", content);
         return toast;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value;
+        }
+        return "";
     }
 
     private void onEvent(JsonNode payload) throws Exception {
