@@ -46,6 +46,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/api/health", "/api/v1/auth/**", "/api/v1/holidays", "/api/v1/tasks/feed/*.ics", "/mcp", "/mcp/**",
+                                // 飞书回调没有登录态，靠签名 + Verification Token 自证；其余 feishu 接口仍需登录
+                                "/api/v1/feishu/event", "/api/v1/feishu/card",
                                 "/.well-known/**", "/oauth/authorize", "/oauth/token", "/oauth/register", "/oauth/revoke",
                                 "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/data", "/api/auth/**", "/api/worktime/**", "/api/ledger/**", "/api/holidays").permitAll()

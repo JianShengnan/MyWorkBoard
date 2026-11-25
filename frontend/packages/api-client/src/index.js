@@ -393,3 +393,8 @@ export async function apiTestPushChannel(kind) { return data(await api.post(`/ap
 export async function apiGetPushPreference() { return data(await api.get('/api/v1/push/preference')) }
 export async function apiSavePushPreference(payload) { return data(await api.put('/api/v1/push/preference', payload)) }
 export async function apiListPushDeliveries(limit = 20) { return data(await api.get('/api/v1/push/deliveries', { params: { limit } })) }
+
+// 飞书自建应用：双向对话。凭证在服务端环境变量里，网页只负责绑定账号。
+export async function apiFeishuStatus() { return data(await api.get('/api/v1/feishu/status')) }
+export async function apiFeishuBindCode() { return data(await api.post('/api/v1/feishu/bind-code')) }
+export async function apiFeishuUnbind() { return data(await api.delete('/api/v1/feishu/binding')) }

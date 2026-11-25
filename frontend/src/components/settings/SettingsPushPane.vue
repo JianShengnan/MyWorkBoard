@@ -8,6 +8,45 @@
       <Button size="sm" variant="ghost" :disabled="loading" @click="load">{{ loading ? '刷新中…' : '刷新' }}</Button>
     </div>
 
+    <section class="push-block feishu-link">
+      <div class="push-heading">
+        <h3>连接飞书（双向对话）</h3>
+        <span v-if="feishu.binding" class="push-state is-ok">已连接</span>
+        <span v-else-if="feishu.configured" class="push-state">未连接</span>
+        <span v-else class="push-state">服务端未配置</span>
+      </div>
+
+      <p v-if="!feishu.configured" class="hint">
+        服务端还没有飞书应用凭证（App ID / App Secret），这块功能暂时用不了。下面「飞书群机器人」的单向推送不受影响。
+      </p>
+
+      <template v-else-if="feishu.binding">
+        <p class="hint">
+          已连接到飞书账号 <code>{{ shortOpenId(feishu.binding.openId) }}</code>，绑定于 {{ formatTime(feishu.binding.boundAt) }}。
+          在飞书里直接跟机器人说话就能记账、加任务；写操作会先在网页生成待审批。
+        </p>
+        <div class="push-actions">
+          <Button size="sm" variant="ghost" :disabled="feishuBusy" @click="unbindFeishu">解除绑定</Button>
+        </div>
+      </template>
+
+      <template v-else>
+        <p class="hint">
+          绑定后在飞书里直接说「昨天午饭 35 现金」「明天下午三点提醒我交周报」，
+          机器人会调站内的 AI 助手处理；同一个会话在网页的「AI 会话」里也能接着聊。
+        </p>
+        <div class="feishu-bind-row">
+          <Button size="sm" :disabled="feishuBusy" @click="createBindCode">
+            {{ feishuBusy ? '生成中…' : bindCode ? '重新生成' : '生成绑定码' }}
+          </Button>
+          <div v-if="bindCode" class="feishu-code">
+            <b>{{ bindCode.code }}</b>
+            <small>10 分钟内有效 · 在飞书里给机器人发送「绑定 {{ bindCode.code }}」</small>
+          </div>
+        </div>
+      </template>
+    </section>
+
     <div class="push-channels">
       <article v-for="card in channels" :key="card.kind" class="push-channel">
         <header>
@@ -99,6 +138,7 @@ import { onMounted, reactive, ref } from 'vue'
 import Button from '../ui/Button.vue'
 import { message } from '../../services/message.js'
 import {
+  apiFeishuBindCode, apiFeishuStatus, apiFeishuUnbind,
   apiGetPushPreference, apiListPushChannels, apiListPushDeliveries,
   apiSavePushChannel, apiSavePushPreference, apiTestPushChannel
 } from '../../../packages/api-client/src/index.js'
@@ -156,6 +196,53 @@ const savingPreference = ref(false)
 const preferenceNote = ref('')
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
 
+// 飞书自建应用：凭证在服务端，这里只管「这个账号有没有绑上飞书」
+const feishu = reactive({ configured: false, encrypted: false, binding: null })
+const bindCode = ref(null)
+const feishuBusy = ref(false)
+
+async function loadFeishu() {
+  try {
+    const status = await apiFeishuStatus()
+    feishu.configured = Boolean(status?.configured)
+    feishu.encrypted = Boolean(status?.encrypted)
+    feishu.binding = status?.binding || null
+  } catch {
+    // 后端还没升级到带飞书接口的版本时不影响其它推送配置
+    feishu.configured = false
+  }
+}
+
+async function createBindCode() {
+  feishuBusy.value = true
+  try {
+    bindCode.value = await apiFeishuBindCode()
+  } catch (error) {
+    message.error(error?.response?.data?.detail || '生成绑定码失败')
+  } finally {
+    feishuBusy.value = false
+  }
+}
+
+async function unbindFeishu() {
+  feishuBusy.value = true
+  try {
+    await apiFeishuUnbind()
+    feishu.binding = null
+    bindCode.value = null
+    message.success('已解除飞书绑定')
+  } catch (error) {
+    message.error(error?.response?.data?.detail || '解除绑定失败')
+  } finally {
+    feishuBusy.value = false
+  }
+}
+
+function shortOpenId(value) {
+  if (!value) return ''
+  return value.length <= 12 ? value : `${value.slice(0, 6)}…${value.slice(-4)}`
+}
+
 function applyRow(kind, row) {
   if (!row) return
   rows[kind] = row
@@ -168,7 +255,7 @@ function applyRow(kind, row) {
 async function load() {
   loading.value = true
   try {
-    const [list, pref] = await Promise.all([apiListPushChannels(), apiGetPushPreference()])
+    const [list, pref] = await Promise.all([apiListPushChannels(), apiGetPushPreference(), loadFeishu()])
     for (const row of list || []) applyRow(row.kind, row)
     if (pref) {
       preference.taskReminder = Boolean(pref.taskReminder)
@@ -357,6 +444,11 @@ onMounted(() => {
 .push-delivery b.is-off { color: var(--muted); }
 .push-delivery-title { min-width: 0; overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
 .push-delivery small { color: var(--muted); font-size: 10.5px; text-align: right; }
+.feishu-bind-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.feishu-code { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.feishu-code b { color: var(--accent); font-size: 17px; font-variant-numeric: tabular-nums; letter-spacing: 2px; }
+.feishu-code small { color: var(--muted); font-size: 10.5px; }
+.feishu-link code { padding: 1px 5px; border-radius: 5px; background: var(--paper); color: var(--ink2); font-size: 11px; }
 @media (max-width: 720px) {
   .push-channel footer { flex-wrap: wrap; }
   .push-state { flex: 1 1 100%; }
