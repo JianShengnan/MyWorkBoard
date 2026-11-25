@@ -18,73 +18,6 @@
       </template>
     </section>
 
-    <section class="tool-card recovery">
-      <header>
-        <h2>身体恢复倒计时</h2>
-        <small>按最后一支烟的时刻计算</small>
-      </header>
-      <p v-if="!recovery" class="tool-hint">补全下方设置后，这里会开始倒计时。</p>
-      <template v-else>
-        <div class="recovery-lead">
-          <div class="recovery-head">
-            <span v-if="recovery.nextMilestoneLabel">距离「{{ recovery.nextMilestoneLabel }}」</span>
-            <span v-else>全部里程碑已达成</span>
-            <b v-if="recovery.nextMilestoneLabel">{{ formatRemaining(recovery.nextRemainingMinutes) }}</b>
-            <b v-else>✓</b>
-          </div>
-          <div class="recovery-progress" :aria-label="`进度 ${Math.round((recovery.nextProgress || 0) * 100)}%`">
-            <span :style="{ width: `${Math.min(100, Math.max(0, (recovery.nextProgress || 0) * 100))}%` }"></span>
-          </div>
-          <p class="recovery-note">{{ recovery.encouragement }}</p>
-          <p class="tool-hint">已跨过 {{ recovery.reachedCount }} / {{ recovery.totalCount }} 个节点</p>
-        </div>
-
-        <div v-for="group in milestoneGroups" :key="group.key" class="milestone-group">
-          <h3>{{ group.label }} <small>{{ reachedIn(group) }}/{{ group.items.length }}</small></h3>
-          <ul class="milestone-list">
-            <li
-              v-for="item in group.items"
-              :key="item.key"
-              :class="{ 'is-reached': item.reached, 'is-next': item.key === nextKey }"
-            >
-              <span class="milestone-dot" aria-hidden="true"></span>
-              <div class="milestone-body">
-                <div class="milestone-row">
-                  <b>{{ item.label }}</b>
-                  <em>{{ item.reached ? '已达成' : formatRemaining(item.remainingMinutes) }}</em>
-                </div>
-                <p v-if="item.key === nextKey">{{ item.encouragement }}</p>
-                <p v-else-if="item.reached && item.key === latestReachedKey">刚达成：{{ item.detail }}</p>
-                <p v-else-if="!item.reached">{{ item.atLabel }}后 · {{ item.detail }}</p>
-              </div>
-            </li>
-          </ul>
-        </div>
-        <p class="tool-disclaimer">
-          时间点取自 CDC 与美国卫生总监报告的戒烟获益时间线，以及临床戒烟指南对尼古丁戒断与心理依赖的通行结论；
-          属群体统计，个体差异很大，不构成医学诊断。复吸不会清零倒计时，但会让部分修复重新开始。
-        </p>
-      </template>
-    </section>
-
-    <section class="tool-card">
-      <header><h2>焦油与一氧化碳</h2><small>按种类与支数自动折算</small></header>
-      <div class="tool-stats">
-        <div class="tool-stat"><b>{{ formatMg(substance?.todayTarMg) }}</b><span>今日焦油</span></div>
-        <div class="tool-stat"><b>{{ formatMg(substance?.todayCoMg) }}</b><span>今日一氧化碳</span></div>
-        <div class="tool-stat is-accent"><b>{{ formatMg(substance?.avoidedTarMg) }}</b><span>累计少吸入焦油</span></div>
-        <div class="tool-stat"><b>{{ formatMg(substance?.avoidedCoMg) }}</b><span>累计少吸入一氧化碳</span></div>
-      </div>
-      <p class="tool-hint">
-        当前按每支 {{ tarPerCigarette }} mg 焦油、{{ coPerCigarette }} mg 一氧化碳折算；
-        种类与含量在下方「设置」里调整，改完立即重算。
-      </p>
-      <p v-if="Number(substance?.avoidedTarMg) < 0" class="tool-hint">吸得比基线更多，累计少吸入为负值。</p>
-      <p class="tool-disclaimer">
-        估算值：不同品牌实测差异很大，实际吸入量还受吸食深度、过滤嘴通风和燃烧方式影响，只用来看趋势，不能当作医学剂量。
-      </p>
-    </section>
-
     <section class="tool-card">
       <header><h2>今日记录</h2><small>{{ store.todayDate }}</small></header>
       <div class="tool-row">
@@ -133,16 +66,131 @@
           </button>
         </div>
       </div>
+
+      <form ref="backfillCard" class="backfill" @submit.prevent="saveBackfill">
+        <div class="backfill-head">
+          <b>补录其他日期</b>
+          <span>忘打卡时就近补一天，最近 90 天都能改</span>
+        </div>
+        <div class="backfill-row">
+          <label class="tool-field">
+            <span>日期</span>
+            <input v-model="backfill.date" type="date" :min="range.min" :max="range.max" aria-label="补录日期" />
+          </label>
+          <label class="tool-field">
+            <span>当天支数</span>
+            <input v-model.number="backfill.count" type="number" min="0" max="200" step="1" inputmode="numeric" aria-label="当天支数" />
+          </label>
+          <button type="button" class="tool-btn is-primary backfill-save" :disabled="saving || !backfill.date" @click="saveBackfill">
+            {{ saving ? '保存中…' : '保存' }}
+          </button>
+        </div>
+        <p v-if="backfillHint" class="tool-hint" role="status">{{ backfillHint }}</p>
+      </form>
+    </section>
+
+    <section class="tool-card recovery">
+      <header>
+        <h2>身体恢复日程</h2>
+        <small>按最后一支烟的时刻计算</small>
+      </header>
+      <p v-if="!recovery" class="tool-hint">补全下方设置后，这里会开始倒计时。</p>
+      <template v-else>
+        <div class="recovery-lead">
+          <div class="recovery-head">
+            <span v-if="recovery.nextMilestoneLabel">距离「{{ recovery.nextMilestoneLabel }}」</span>
+            <span v-else>全部里程碑已达成</span>
+            <b v-if="recovery.nextMilestoneLabel">{{ formatRemaining(recovery.nextRemainingMinutes) }}</b>
+            <b v-else>✓</b>
+          </div>
+          <div class="recovery-progress" :aria-label="`进度 ${Math.round((recovery.nextProgress || 0) * 100)}%`">
+            <span :style="{ width: `${Math.min(100, Math.max(0, (recovery.nextProgress || 0) * 100))}%` }"></span>
+          </div>
+          <p class="recovery-note">{{ recovery.encouragement }}</p>
+          <p class="tool-hint">已跨过 {{ recovery.reachedCount }} / {{ recovery.totalCount }} 个节点</p>
+        </div>
+
+        <div v-for="group in milestoneGroups" :key="group.key" class="milestone-group">
+          <h3>{{ group.label }} <small>{{ reachedIn(group) }}/{{ group.items.length }}</small></h3>
+          <ul class="milestone-list">
+            <li
+              v-for="item in group.items"
+              :key="item.key"
+              :class="{ 'is-reached': item.reached, 'is-next': item.key === nextKey }"
+            >
+              <span class="milestone-dot" aria-hidden="true"></span>
+              <div class="milestone-body">
+                <div class="milestone-row">
+                  <b>{{ item.label }}</b>
+                  <em>{{ item.reached ? '已达成' : formatRemaining(item.remainingMinutes) }}</em>
+                </div>
+                <p v-if="item.key === nextKey">{{ item.encouragement }}</p>
+                <p v-else-if="item.reached && item.key === latestReachedKey">刚达成：{{ item.detail }}</p>
+                <p v-else-if="!item.reached">{{ item.atLabel }}后 · {{ item.detail }}</p>
+              </div>
+            </li>
+          </ul>
+        </div>
+        <p class="tool-disclaimer">
+          时间点取自 CDC 与美国卫生总监报告的戒烟获益时间线，以及临床戒烟指南对尼古丁戒断与心理依赖的通行结论；
+          属群体统计，个体差异很大，不构成医学诊断。复吸不会清零倒计时，但会让部分修复重新开始。
+        </p>
+      </template>
     </section>
 
     <section class="tool-card">
-      <header><h2>近 30 天</h2><small>灰 = 未记录，绿 = 无烟，红 = 有吸烟</small></header>
+      <header><h2>近 30 天</h2><small>灰 = 未记录，绿 = 无烟，红 = 有吸烟；点格子可直接补录</small></header>
       <ol class="heat">
-        <li v-for="day in heat" :key="day.date" :class="day.status" :title="`${day.date}：${heatLabel(day)}`">
-          <span>{{ day.date.slice(8) }}</span>
+        <li v-for="day in heat" :key="day.date" :class="[day.status, { 'is-selected': day.date === backfill.date }]">
+          <button
+            type="button"
+            :title="`${day.date}：${heatLabel(day)}`"
+            :aria-label="`${day.date} ${heatLabel(day)}，点按补录`"
+            @click="pickDay(day.date)"
+          >{{ day.date.slice(8) }}</button>
         </li>
       </ol>
       <p v-if="!store.configured" class="tool-hint">先补全下方设置，连续天数与省下金额才会开始累计。</p>
+    </section>
+
+    <section class="tool-card">
+      <header><h2>焦油与一氧化碳</h2><small>按种类与支数自动折算</small></header>
+      <div class="tool-stats">
+        <div class="tool-stat"><b>{{ formatMg(substance?.todayTarMg) }}</b><span>今日焦油</span></div>
+        <div class="tool-stat"><b>{{ formatMg(substance?.todayCoMg) }}</b><span>今日一氧化碳</span></div>
+        <div class="tool-stat is-accent"><b>{{ formatMg(substance?.avoidedTarMg) }}</b><span>累计少吸入焦油</span></div>
+        <div class="tool-stat"><b>{{ formatMg(substance?.avoidedCoMg) }}</b><span>累计少吸入一氧化碳</span></div>
+      </div>
+      <p class="tool-hint">
+        当前按每支 {{ tarPerCigarette }} mg 焦油、{{ coPerCigarette }} mg 一氧化碳折算；
+        种类与含量在下方「设置」里调整，改完立即重算。
+      </p>
+      <p v-if="Number(substance?.avoidedTarMg) < 0" class="tool-hint">吸得比基线更多，累计少吸入为负值。</p>
+      <p class="tool-disclaimer">
+        估算值：不同品牌实测差异很大，实际吸入量还受吸食深度、过滤嘴通风和燃烧方式影响，只用来看趋势，不能当作医学剂量。
+      </p>
+    </section>
+
+    <section v-if="store.cravings.length" class="tool-card">
+      <header><h2>渴望记录</h2><small>最近 30 天</small></header>
+      <div class="tool-table-wrap">
+        <table class="tool-table">
+          <thead><tr><th>时间</th><th>强度</th><th>场景</th><th>结果</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="item in store.cravings" :key="item.id">
+              <td>{{ timeLabel(item.occurredAt) }}</td>
+              <td>{{ item.intensity }}</td>
+              <td>{{ triggerLabel(item.trigger) }}</td>
+              <td>
+                <button type="button" class="tool-btn" style="padding:3px 8px" @click="store.toggleResisted(item)">
+                  {{ item.resisted ? '忍住了' : '没忍住' }}
+                </button>
+              </td>
+              <td><button type="button" class="tool-btn" style="padding:3px 8px" @click="store.removeCraving(item)">删除</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section class="tool-card">
@@ -171,42 +219,32 @@
       </div>
       <p class="tool-disclaimer">所有记录按账号保存在服务端，换设备登录后仍在；不参与离线同步。</p>
     </section>
-
-    <section v-if="store.cravings.length" class="tool-card">
-      <header><h2>渴望记录</h2><small>最近 30 天</small></header>
-      <div class="tool-table-wrap">
-        <table class="tool-table">
-          <thead><tr><th>时间</th><th>强度</th><th>场景</th><th>结果</th><th></th></tr></thead>
-          <tbody>
-            <tr v-for="item in store.cravings" :key="item.id">
-              <td>{{ timeLabel(item.occurredAt) }}</td>
-              <td>{{ item.intensity }}</td>
-              <td>{{ triggerLabel(item.trigger) }}</td>
-              <td>
-                <button type="button" class="tool-btn" style="padding:3px 8px" @click="store.toggleResisted(item)">
-                  {{ item.resisted ? '忍住了' : '没忍住' }}
-                </button>
-              </td>
-              <td><button type="button" class="tool-btn" style="padding:3px 8px" @click="store.removeCraving(item)">删除</button></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import {
   CIGARETTE_TYPES, CRAVING_TRIGGERS, cigaretteType, formatMg, formatRemaining, groupMilestones, timeline, triggerLabel
 } from './quitSmoking.js'
+import { addDate, todayKey } from './dateMath.js'
 import { useQuitSmokingStore } from '../../stores/quitSmoking.js'
 
 const store = useQuitSmokingStore()
 const cravingOpen = ref(false)
 const submitting = ref(false)
+const saving = ref(false)
+const backfillCard = ref(null)
+const backfillHint = ref('')
 const craving = reactive({ intensity: 3, trigger: 'after-meal', note: '', resisted: true })
+
+// 与 store 拉取的 90 天窗口一致：更早的日期没有对应记录，补录会让「近 30 天」与实际不符
+const range = (() => {
+  const max = todayKey()
+  return { min: addDate(max, { days: -89 }), max }
+})()
+const backfill = reactive({ date: addDate(range.max, { days: -1 }), count: 0 })
+
 const form = reactive({
   startAt: '',
   baselinePerDay: 20,
@@ -240,6 +278,14 @@ watch(() => store.settings, settings => {
   form.coPerCigarette = Number(settings.coPerCigarette ?? cigaretteType(form.cigaretteType).coMg ?? 0)
 }, { immediate: true })
 
+// 选到哪一天就把那天的支数带出来，避免「补录」把已有记录悄悄覆盖成 0
+watch([() => backfill.date, () => store.loaded], ([date]) => {
+  if (!date) return
+  const record = store.days?.[date]
+  backfill.count = Number(record?.smokedCount ?? 0)
+  backfillHint.value = record ? `这天已有记录：${record.smokedCount} 支，保存会覆盖` : ''
+}, { immediate: true })
+
 onMounted(() => {
   if (!store.loaded && !store.loading) store.fetchAll()
 })
@@ -254,6 +300,24 @@ function applyCigarettePreset() {
 
 function reachedIn(group) {
   return group.items.filter(item => item.reached).length
+}
+
+/** 点「近 30 天」的格子 → 把那一天带进补录，并滚回补录表单 */
+async function pickDay(date) {
+  backfill.date = date
+  await nextTick()
+  backfillCard.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+async function saveBackfill() {
+  if (saving.value || !backfill.date) return
+  saving.value = true
+  try {
+    const saved = await store.setDaySmoked(backfill.date, backfill.count)
+    if (saved) backfillHint.value = `${saved.date} 已记为 ${saved.smokedCount} 支`
+  } finally {
+    saving.value = false
+  }
 }
 
 async function save() {
@@ -320,14 +384,31 @@ function money(value) {
 <style scoped>
 .craving-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: 12px; }
 
-.heat { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
-.heat li {
-  display: flex; min-height: 34px; align-items: center; justify-content: center;
-  border-radius: 8px; font-size: 11px; font-variant-numeric: tabular-nums;
+.backfill { display: grid; gap: 10px; margin-top: 4px; padding: 12px; border: 1px dashed var(--line2); border-radius: 12px; }
+.backfill-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.backfill-head b { font-size: 12.5px; }
+.backfill-head span { color: var(--muted); font-size: 11px; }
+.backfill-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.backfill-row .tool-field { flex: 1 1 150px; min-width: 0; }
+.backfill .backfill-row .backfill-save { flex: 0 0 auto; min-width: 104px; min-height: 38px; }
+/* 宽屏下不让日期框铺满整行：补录是低频操作，保持紧凑更像一处工具而非表单主体 */
+@media (min-width: 720px) {
+  .backfill-row .tool-field { flex: 0 1 200px; }
+  .backfill-row .tool-field + .tool-field { flex: 0 1 140px; }
 }
-.heat li.clean { background: color-mix(in srgb, #2f9e6f 26%, transparent); color: var(--ink); }
-.heat li.relapse { background: color-mix(in srgb, #d2564b 30%, transparent); color: var(--ink); }
-.heat li.unlogged { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--muted); }
+
+.heat { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.heat li { min-width: 0; }
+.heat button {
+  display: flex; width: 100%; min-height: 34px; align-items: center; justify-content: center;
+  padding: 0; border: 1px solid transparent; border-radius: 8px; background: transparent;
+  color: var(--ink); font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.heat li.clean button { background: color-mix(in srgb, #2f9e6f 26%, transparent); }
+.heat li.relapse button { background: color-mix(in srgb, #d2564b 30%, transparent); }
+.heat li.unlogged button { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--muted); }
+.heat li.is-selected button { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
+.heat button:hover { border-color: var(--accent); }
 
 .recovery-lead {
   display: grid; gap: 8px; padding: 12px 14px; border-radius: 12px;

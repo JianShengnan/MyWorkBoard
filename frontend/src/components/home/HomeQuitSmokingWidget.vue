@@ -8,7 +8,7 @@
 
     <div v-else-if="!store.configured" class="qw-empty">
       <p>还没开始记录戒烟</p>
-      <router-link class="hw-btn" to="/tools/quit">去设置开始时间</router-link>
+      <router-link class="hw-btn primary" to="/tools/quit">去设置开始时间</router-link>
     </div>
 
     <template v-else>
@@ -136,11 +136,14 @@ function money(value) {
 .qw-count b { color: var(--ink); font-size: 30px; font-weight: 740; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .qw-count small { color: var(--muted); font-size: 10.5px; }
 .qw-actions { display: flex; align-items: center; gap: 4px; }
-.qw-step { width: 30px; height: 28px; padding: 0; border: 1px solid var(--line2); border-radius: 8px; background: var(--card); color: var(--ink2); font-size: 12px; font-weight: 650; }
-.qw-step.is-primary { border-color: var(--accent); color: var(--accent); }
-.qw-step:disabled { opacity: .45; }
-.qw-zero { height: 28px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 8px; background: transparent; color: var(--muted); font-size: 10.5px; }
-.qw-zero:disabled { opacity: .45; }
+.qw-step { width: 32px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font-size: 13px; font-weight: 700; transition: border-color .15s ease, color .15s ease; }
+.qw-step:hover:not(:disabled) { border-color: var(--ink2); }
+.qw-step.is-primary { border-color: transparent; background: var(--accent); color: var(--paper); }
+.qw-step.is-primary:hover:not(:disabled) { filter: brightness(1.06); }
+.qw-step:disabled { color: var(--muted); opacity: .5; }
+.qw-zero { height: 30px; padding: 0 9px; border: 1px solid transparent; border-radius: 8px; background: color-mix(in srgb, var(--ink) 6%, var(--card)); color: var(--ink2); font-size: 10.5px; font-weight: 600; }
+.qw-zero:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 10%, var(--card)); color: var(--ink); }
+.qw-zero:disabled { color: var(--muted); opacity: .55; }
 .qw-week { display: flex; align-items: flex-end; justify-content: space-between; gap: 3px; height: 42px; margin: 0 0 8px; padding: 0; list-style: none; }
 .qw-week li { display: flex; min-width: 0; flex: 1; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; }
 .qw-week i { display: block; width: 100%; max-width: 14px; border-radius: 3px; background: var(--line2); transition: height .2s ease; }

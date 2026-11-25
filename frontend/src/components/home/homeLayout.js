@@ -11,6 +11,7 @@ export const HOME_WIDGETS = [
   { key: 'tasks', title: '任务与习惯', span: 4 },
   { key: 'calendar', title: '日历', span: 4 },
   { key: 'ledger', title: '最近流水', span: 4 },
+  { key: 'assets', title: '账户资产', span: 4 },
   { key: 'cashflow', title: '收支趋势', span: 5 },
   { key: 'budget', title: '预算执行', span: 3 },
   { key: 'category', title: '支出分类', span: 4 },

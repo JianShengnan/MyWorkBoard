@@ -52,6 +52,7 @@ import { MessagesSquare, SlidersHorizontal } from 'lucide-vue-next'
 import HomeTasksWidget from '../components/home/HomeTasksWidget.vue'
 import HomeCalendarWidget from '../components/home/HomeCalendarWidget.vue'
 import HomeLedgerWidget from '../components/home/HomeLedgerWidget.vue'
+import HomeAssetsWidget from '../components/home/HomeAssetsWidget.vue'
 import HomeCashflowWidget from '../components/home/HomeCashflowWidget.vue'
 import HomeBudgetWidget from '../components/home/HomeBudgetWidget.vue'
 import HomeCategoryWidget from '../components/home/HomeCategoryWidget.vue'
@@ -77,6 +78,7 @@ const widgetMap = {
   tasks: HomeTasksWidget,
   calendar: HomeCalendarWidget,
   ledger: HomeLedgerWidget,
+  assets: HomeAssetsWidget,
   cashflow: HomeCashflowWidget,
   budget: HomeBudgetWidget,
   category: HomeCategoryWidget,
@@ -234,7 +236,8 @@ onMounted(async () => {
 .home-cell { position: relative; min-width: 0; }
 /* 同一行的卡片等高：高度写死在这里，卡片内部按 flex 分配，避免被邻居的内容高度拉扯 */
 .home-cell.hw-key-tasks, .home-cell.hw-key-calendar, .home-cell.hw-key-ledger { height: 500px; }
-.home-cell.hw-key-cashflow, .home-cell.hw-key-budget, .home-cell.hw-key-category { height: 330px; }
+.home-cell.hw-key-cashflow, .home-cell.hw-key-budget, .home-cell.hw-key-category,
+.home-cell.hw-key-assets { height: 330px; }
 .home-cell.hw-key-worktime, .home-cell.hw-key-ai { height: 360px; }
 /* 四张紧凑卡（戒烟/倒数日/发薪日/节假日）单独一排，高度按内容最小需求锁定 */
 .home-cell.hw-key-quit, .home-cell.hw-key-countdown,
@@ -263,7 +266,7 @@ onMounted(async () => {
   .home-canvas { padding: 18px 14px 32px; }
   .home-cell.hw-key-tasks, .home-cell.hw-key-calendar, .home-cell.hw-key-ledger,
   .home-cell.hw-key-cashflow, .home-cell.hw-key-budget, .home-cell.hw-key-category,
-  .home-cell.hw-key-worktime, .home-cell.hw-key-ai, .home-cell.hw-key-quit,
+  .home-cell.hw-key-assets, .home-cell.hw-key-worktime, .home-cell.hw-key-ai, .home-cell.hw-key-quit,
   .home-cell.hw-key-countdown, .home-cell.hw-key-payday, .home-cell.hw-key-holiday { height: auto; min-height: 0; }
   .home-head { align-items: flex-start; flex-direction: column; gap: 10px; }
   .home-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
