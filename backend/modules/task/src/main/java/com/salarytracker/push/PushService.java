@@ -106,8 +106,18 @@ public class PushService {
         PushSender sender = senders.get(normalized);
         if (sender == null) throw new IllegalArgumentException("不支持的推送通道");
         try {
-            sender.send(channel.config(), new PushModels.Message("WorkBoard 测试推送",
-                    "收到这条说明「" + label(normalized) + "」通道已经打通，任务提醒与习惯汇总会推到这里。", absolute("/settings")));
+            // 测试消息用样张数据，让用户一眼看出正式提醒会长什么样
+            PushModels.Message sample = new PushModels.Message(
+                    "示例任务：提交周报", "任务提醒 · 高优先级 · 工作",
+                    "这条是测试消息，正式提醒会带上任务标题、清单、截止时间、检查项进度与描述摘要。",
+                    absolute("/tasks/all"), "打开任务",
+                    List.of(new PushModels.Fact("截止", "今天 18:00（还有 2 小时）"),
+                            new PushModels.Fact("清单", "工作"),
+                            new PushModels.Fact("检查项", "2 / 5 已完成"),
+                            new PushModels.Fact("提醒", "单次")),
+                    List.of("把本周数据补进模板", "抄送组长确认"),
+                    List.of(new PushModels.Action("查看全部提醒", "/tasks/inbox-notify")));
+            sender.send(channel.config(), sample, "TEST");
             jdbc.update("UPDATE push_channel SET last_test_at=CURRENT_TIMESTAMP(3),last_test_ok=TRUE,last_error=NULL WHERE id=?",
                     channel.id());
             logDelivery(userId, normalized, "TEST", "SENT", "通道测试", null);
@@ -168,9 +178,18 @@ public class PushService {
 
     /**
      * 分发一条外部提醒。event 取 TASK_REMINDER / CHECKLIST_REMINDER / HABIT_DIGEST，link 传站内路径。
-     * 调用方不必处理异常：任何失败都只落到投递日志。
+     * 只给标题正文的简写版本，内容不够时用下面带 {@link PushModels.Message} 的重载。
      */
     public void dispatch(long userId, String event, String title, String body, String link) {
+        dispatch(userId, event, new PushModels.Message(title, body, absolute(link)));
+    }
+
+    /**
+     * 结构化消息版本：飞书渲染成卡片（字段 + 按钮），Bark 用副标题与正文，邮件渲染 HTML。
+     * 调用方不必处理异常：任何失败都只落到投递日志。
+     */
+    public void dispatch(long userId, String event, PushModels.Message payload) {
+        String title = PushHttp.text(payload.title());
         try {
             PushModels.Preference preference = preference(userId);
             if (!allowed(preference, event)) {
@@ -184,7 +203,11 @@ public class PushService {
             List<PushModels.Channel> targets = queryChannels(userId, null).stream()
                     .filter(channel -> channel.enabled() && channel.ready()).toList();
             if (targets.isEmpty()) return;
-            PushModels.Message message = new PushModels.Message(title, body, absolute(link));
+            PushModels.Message message = new PushModels.Message(payload.title(), payload.kicker(), payload.body(),
+                    absolute(payload.link()), payload.linkLabel(), payload.facts(), payload.lines(),
+                    payload.actions().stream()
+                            .map(action -> new PushModels.Action(action.text(), absolute(action.url())))
+                            .toList());
             for (PushModels.Channel channel : targets) {
                 PushSender sender = senders.get(channel.kind());
                 if (sender == null) continue;
@@ -198,7 +221,7 @@ public class PushService {
 
     private void deliver(long userId, PushSender sender, PushModels.Channel channel, String event, PushModels.Message message) {
         try {
-            sender.send(channel.config(), message);
+            sender.send(channel.config(), message, event);
             jdbc.update("UPDATE push_channel SET last_sent_at=CURRENT_TIMESTAMP(3),last_error=NULL WHERE id=?", channel.id());
             logDelivery(userId, channel.kind(), event, "SENT", message.title(), null);
         } catch (Exception exception) {

@@ -11,4 +11,9 @@ public interface PushSender {
     boolean ready(Map<String, String> config);
 
     void send(Map<String, String> config, PushModels.Message message) throws Exception;
+
+    /** 带事件类型的重载：飞书按事件决定卡片配色，Bark 用来分组 */
+    default void send(Map<String, String> config, PushModels.Message message, String event) throws Exception {
+        send(config, message);
+    }
 }

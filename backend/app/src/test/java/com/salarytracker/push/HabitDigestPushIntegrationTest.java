@@ -13,7 +13,8 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -60,11 +61,16 @@ class HabitDigestPushIntegrationTest extends MySqlIntegrationTestSupport {
 
         service.scan();
 
-        verify(push, times(1)).dispatch(eq(userId), eq("HABIT_DIGEST"), contains("1 个习惯"), eq("晨跑"), eq("/tasks/habits"));
-        verify(push, never()).dispatch(anyLong(), eq("HABIT_DIGEST"), contains("周报"), anyString(), anyString());
-        verify(push, never()).dispatch(anyLong(), eq("HABIT_DIGEST"), contains("喝水"), anyString(), anyString());
-        verify(push, never()).dispatch(anyLong(), eq("HABIT_DIGEST"), contains("冥想"), anyString(), anyString());
-        verify(push, never()).dispatch(anyLong(), eq("HABIT_DIGEST"), contains("归档"), anyString(), anyString());
+        verify(push, times(1)).dispatch(eq(userId), eq("HABIT_DIGEST"), argThat((PushModels.Message message) ->
+                message.title().contains("1 个习惯") && message.lines().stream().anyMatch(line -> line.contains("晨跑"))));
+        verify(push, never()).dispatch(anyLong(), eq("HABIT_DIGEST"),
+                argThat((PushModels.Message message) -> message.lines().stream().anyMatch(line -> line.contains("周报"))));
+        verify(push, never()).dispatch(anyLong(), eq("HABIT_DIGEST"),
+                argThat((PushModels.Message message) -> message.lines().stream().anyMatch(line -> line.contains("喝水"))));
+        verify(push, never()).dispatch(anyLong(), eq("HABIT_DIGEST"),
+                argThat((PushModels.Message message) -> message.lines().stream().anyMatch(line -> line.contains("冥想"))));
+        verify(push, never()).dispatch(anyLong(), eq("HABIT_DIGEST"),
+                argThat((PushModels.Message message) -> message.lines().stream().anyMatch(line -> line.contains("归档"))));
     }
 
     @Test
@@ -74,7 +80,7 @@ class HabitDigestPushIntegrationTest extends MySqlIntegrationTestSupport {
 
         service.scan();
 
-        verify(push, never()).dispatch(anyLong(), anyString(), anyString(), anyString(), anyString());
+        verify(push, never()).dispatch(anyLong(), anyString(), any(PushModels.Message.class));
     }
 
     @Test
@@ -84,7 +90,7 @@ class HabitDigestPushIntegrationTest extends MySqlIntegrationTestSupport {
         service.scan();
         service.scan();
 
-        verify(push, times(1)).dispatch(anyLong(), eq("HABIT_DIGEST"), anyString(), anyString(), anyString());
+        verify(push, times(1)).dispatch(anyLong(), eq("HABIT_DIGEST"), any(PushModels.Message.class));
     }
 
     @Test
@@ -94,7 +100,7 @@ class HabitDigestPushIntegrationTest extends MySqlIntegrationTestSupport {
 
         service.scan();
 
-        verify(push, never()).dispatch(anyLong(), anyString(), anyString(), anyString(), anyString());
+        verify(push, never()).dispatch(anyLong(), anyString(), any(PushModels.Message.class));
     }
 
     @Test
@@ -106,7 +112,7 @@ class HabitDigestPushIntegrationTest extends MySqlIntegrationTestSupport {
 
         service.scan();
 
-        verify(push, never()).dispatch(anyLong(), anyString(), anyString(), anyString(), anyString());
+        verify(push, never()).dispatch(anyLong(), anyString(), any(PushModels.Message.class));
     }
 
     private long habit(String name, String frequency, String customDays, int showInToday) {

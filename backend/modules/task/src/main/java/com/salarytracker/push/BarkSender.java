@@ -32,6 +32,11 @@ public class BarkSender implements PushSender {
 
     @Override
     public void send(Map<String, String> config, PushModels.Message message) throws Exception {
+        send(config, message, "TEST");
+    }
+
+    @Override
+    public void send(Map<String, String> config, PushModels.Message message, String event) throws Exception {
         String key = PushHttp.text(config.get("key"));
         if (key.isEmpty()) throw new IllegalStateException("未填写 Bark Device Key");
         String server = PushHttp.text(config.get("server"));
@@ -44,8 +49,11 @@ public class BarkSender implements PushSender {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("device_key", key);
         body.put("title", PushHttp.text(message.title()));
-        body.put("body", PushHttp.text(message.body()));
-        body.put("group", "WorkBoard");
+        // iOS 通知会显示副标题，用事件类型 + 清单这类一眼可见的定位信息
+        String kicker = PushHttp.text(message.kicker());
+        if (!kicker.isEmpty()) body.put("subtitle", kicker);
+        body.put("body", detail(message));
+        body.put("group", "WorkBoard · " + PushText.eventLabel(event));
         if (!PushHttp.text(message.link()).isEmpty()) {
             body.put("url", message.link());
             body.put("autoCopy", "1");
@@ -60,5 +68,19 @@ public class BarkSender implements PushSender {
         int code = node.path("code").asInt(200);
         if (code != 200) throw new IllegalStateException("Bark 返回 " + code + "："
                 + PushHttp.truncate(node.path("message").asText(node.toString()), 180));
+    }
+
+    /** Bark 正文没有排版能力，把字段压成「截止 今天 18:00 · 清单 工作」这种单行 */
+    private String detail(PushModels.Message message) {
+        StringBuilder text = new StringBuilder(PushHttp.text(message.body()));
+        for (PushModels.Fact fact : message.facts()) {
+            if (text.length() > 0) text.append('\n');
+            text.append(fact.label()).append(' ').append(PushText.oneLine(fact.value(), 40));
+        }
+        for (String line : message.lines()) {
+            if (text.length() > 0) text.append('\n');
+            text.append("• ").append(PushHttp.text(line));
+        }
+        return PushHttp.truncate(text.toString(), 400);
     }
 }

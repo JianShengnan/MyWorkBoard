@@ -2,12 +2,15 @@ package com.salarytracker.push;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -15,9 +18,14 @@ import java.util.Map;
 /**
  * 飞书自定义机器人。
  * 只填 Webhook 即可用；开启「签名校验」时再填 secret，按官方算法补 timestamp/sign。
+ *
+ * <p>消息以「消息卡片」发送（msg_type=interactive），标题、字段、正文、按钮分开排版；
+ * 卡片 JSON 拼错时飞书会返回非 0 业务码，因此这里不额外做本地校验。</p>
  */
 @Component
 public class FeishuSender implements PushSender {
+    private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("MM-dd HH:mm");
+
     private final RestClient client = PushHttp.client();
     private final ObjectMapper mapper;
 
@@ -38,15 +46,20 @@ public class FeishuSender implements PushSender {
 
     @Override
     public void send(Map<String, String> config, PushModels.Message message) throws Exception {
+        send(config, message, "TEST");
+    }
+
+    @Override
+    public void send(Map<String, String> config, PushModels.Message message, String event) throws Exception {
         String webhook = PushHttp.text(config.get("webhook"));
         if (!ready(config)) throw new IllegalStateException("未填写飞书 Webhook 地址");
-        StringBuilder text = new StringBuilder(PushHttp.text(message.title()));
-        if (!PushHttp.text(message.body()).isEmpty()) text.append('\n').append(PushHttp.text(message.body()));
-        if (!PushHttp.text(message.link()).isEmpty()) text.append('\n').append(message.link());
+
+        String footer = "WorkBoard · " + LocalDateTime.now().format(STAMP);
+        ObjectNode card = FeishuCard.build(mapper, message, event, footer);
 
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("msg_type", "text");
-        body.put("content", Map.of("text", text.toString()));
+        body.put("msg_type", "interactive");
+        body.put("card", card);
         String secret = PushHttp.text(config.get("secret"));
         if (!secret.isEmpty()) {
             long timestamp = System.currentTimeMillis() / 1000;

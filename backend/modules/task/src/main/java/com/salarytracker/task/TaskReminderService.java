@@ -2,6 +2,7 @@ package com.salarytracker.task;
 
 import com.salarytracker.identity.CurrentUserResolver;
 import com.salarytracker.platform.NotFoundException;
+import com.salarytracker.push.PushContent;
 import com.salarytracker.push.PushService;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -167,8 +168,7 @@ public class TaskReminderService {
                 "m.deep_link,m.read_at,m.created_at FROM task_inbox_message m LEFT JOIN task t ON t.id=m.task_id " +
                 "WHERE m.user_id=? AND m.dedupe_key=?", (row, number) -> message(row), userId, dedupe);
         if (!message.isEmpty()) stream.publish(userId, message.get(0));
-        push.dispatch(userId, "CHECKLIST_REMINDER", taskTitle, "检查项提醒：" + itemTitle,
-                "/tasks/all?task=" + taskPublicId);
+        push.dispatch(userId, "CHECKLIST_REMINDER", PushContent.checklist(brief(taskId), itemTitle, taskPublicId));
     }
 
     @Transactional
@@ -198,8 +198,43 @@ public class TaskReminderService {
                 "m.deep_link,m.read_at,m.created_at FROM task_inbox_message m LEFT JOIN task t ON t.id=m.task_id " +
                 "WHERE m.user_id=? AND m.dedupe_key=?", (row, number) -> message(row), ref.userId(), dedupe);
         if (!message.isEmpty()) stream.publish(ref.userId(), message.get(0));
-        push.dispatch(ref.userId(), "TASK_REMINDER", ref.title(), "任务提醒 · 到点了",
-                "/tasks/all?task=" + ref.taskPublicId());
+        push.dispatch(ref.userId(), "TASK_REMINDER", PushContent.task(brief(ref.taskId()).withDaily(ref.daily()), ref.taskPublicId()));
+    }
+
+    /**
+     * 推送卡片要展示「什么任务、在哪个清单、几点截止、检查项还差几个、描述讲了什么」，
+     * 这里一次查齐；检查项明细再补一条轻量查询（最多 3 条未完成）。
+     */
+    private PushContent.TaskNotice brief(long taskId) {
+        List<PushContent.TaskNotice> rows = jdbc.query("SELECT t.title,t.priority,t.due_at,t.all_day,t.timezone,t.description," +
+                        "l.name list_name," +
+                        "(SELECT COUNT(*) FROM task_checklist_item c WHERE c.task_id=t.id AND c.deleted=FALSE) checklist_total," +
+                        "(SELECT COUNT(*) FROM task_checklist_item c WHERE c.task_id=t.id AND c.deleted=FALSE AND c.completed=TRUE) checklist_done," +
+                        "(SELECT GROUP_CONCAT(g.name ORDER BY g.sort_order,g.id SEPARATOR '/') FROM task_tag_link k " +
+                        " JOIN task_tag g ON g.id=k.tag_id WHERE k.task_id=t.id) tags " +
+                        "FROM task t LEFT JOIN task_list l ON l.id=t.list_id WHERE t.id=?",
+                (row, number) -> new PushContent.TaskNotice(row.getString("title"), row.getString("list_name"),
+                        row.getString("priority"),
+                        row.getTimestamp("due_at") == null ? null : row.getTimestamp("due_at").toInstant(),
+                        row.getBoolean("all_day"), row.getString("timezone"), row.getString("description"),
+                        row.getInt("checklist_total"), row.getInt("checklist_done"),
+                        List.of(), splitTags(row.getString("tags")), false, null), taskId);
+        if (rows.isEmpty()) {
+            return new PushContent.TaskNotice("任务", null, null, null, false, null, null, 0, 0, List.of(), List.of(), false, null);
+        }
+        PushContent.TaskNotice base = rows.get(0);
+        if (base.checklistTotal() == 0) return base;
+        List<String> pending = jdbc.query("SELECT title FROM task_checklist_item WHERE task_id=? AND deleted=FALSE " +
+                        "AND completed=FALSE ORDER BY sort_order,id LIMIT 3",
+                (row, number) -> row.getString(1), taskId);
+        return new PushContent.TaskNotice(base.title(), base.listName(), base.priority(), base.dueAt(), base.allDay(),
+                base.timezone(), base.description(), base.checklistTotal(), base.checklistDone(), pending, base.tags(),
+                base.daily(), base.remindAt());
+    }
+
+    private List<String> splitTags(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        return List.of(raw.split("/"));
     }
 
     private TaskModels.Reminder get(long userId, String publicId) {
