@@ -106,7 +106,7 @@ public class TaskToolsConfiguration {
     @Bean public DomainTool taskTodayTool(TaskService tasks, ObjectMapper mapper) {
         ObjectNode schema = ToolSchemas.object(mapper);
         ToolSchemas.integerProperty(schema, "size", "最多返回条数", 50, 1, 200);
-        return read("task.today", "查询当前用户今天到期且未完成的任务（只含今天，不含逾期；当天到期无论时刻是否已过都不算逾期）。", schema, mapper,
+        return read("task.today", "查询当前用户今天有安排且未完成的任务（今天到期，或跨日任务的时间段覆盖今天；只含今天，不含逾期）。", schema, mapper,
                 input -> tasks.todayTasks(integer(input, "size", 50)));
     }
 

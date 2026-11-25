@@ -260,25 +260,33 @@ public class TaskService {
         String normalizedView = view == null ? "" : view.trim().toUpperCase(Locale.ROOT);
         switch (normalizedView) {
             case "TODAY" -> {
-                // 视图语义沿用「今天及以前未完成」（逾期留在今天里，与既有接口契约一致），
-                // 但日界改按用户时区计算，避免 DB 时区与用户时区不一致时把明天算进今天。
+                // 视图语义：今天及以前未完成（逾期留在今天里，与既有接口契约一致）
+                // + 跨日任务覆盖今天的每一天。跨日任务只按 due_at 判断会漏掉中间的日子——
+                // 11/20–11/30 的任务在 11/25 既不「今天到期」也不逾期，用户却确实今天在做。
+                // 日界按用户时区计算，避免 DB 时区与用户时区不一致时把明天算进今天。
                 ZoneId zone = userZone(userId);
-                java.time.LocalDate tomorrow = java.time.LocalDate.now(zone).plusDays(1);
-                where.append(" AND l.archived=FALSE AND t.status='OPEN' AND t.due_at < ?");
-                args.add(Timestamp.from(tomorrow.atStartOfDay(zone).toInstant()));
+                Instant tomorrow = java.time.LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant();
+                where.append(" AND l.archived=FALSE AND t.status='OPEN' AND (t.due_at < ?" +
+                        " OR (t.start_at IS NOT NULL AND t.due_at IS NOT NULL AND t.start_at < ?))");
+                args.add(Timestamp.from(tomorrow));
+                args.add(Timestamp.from(tomorrow));
             }
             case "TOMORROW" -> {
                 ZoneId zone = userZone(userId);
-                java.time.LocalDate tomorrowDate = java.time.LocalDate.now(zone).plusDays(1);
-                Instant tomorrow = tomorrowDate.atStartOfDay(zone).toInstant();
-                where.append(" AND l.archived=FALSE AND t.status='OPEN' AND t.due_at >= ? AND t.due_at < ?");
+                Instant tomorrow = java.time.LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant();
+                Instant dayAfter = java.time.LocalDate.now(zone).plusDays(2).atStartOfDay(zone).toInstant();
+                // 与明天这一天有交集：到期日不早于明天，且开始日早于后天
+                where.append(" AND l.archived=FALSE AND t.status='OPEN' AND t.due_at >= ?" +
+                        " AND COALESCE(LEAST(t.start_at, t.due_at), t.due_at) < ?");
                 args.add(Timestamp.from(tomorrow));
-                args.add(Timestamp.from(tomorrowDate.plusDays(1).atStartOfDay(zone).toInstant()));
+                args.add(Timestamp.from(dayAfter));
             }
             case "NEXT7" -> {
                 ZoneId zone = userZone(userId);
                 java.time.LocalDate today = java.time.LocalDate.now(zone);
-                where.append(" AND l.archived=FALSE AND t.status='OPEN' AND t.due_at >= ? AND t.due_at < ?");
+                // 7 天窗口内任意一天有交集即算；跨日任务不必等结束那天才出现
+                where.append(" AND l.archived=FALSE AND t.status='OPEN' AND t.due_at >= ?" +
+                        " AND COALESCE(LEAST(t.start_at, t.due_at), t.due_at) < ?");
                 args.add(Timestamp.from(today.atStartOfDay(zone).toInstant()));
                 args.add(Timestamp.from(today.plusDays(8).atStartOfDay(zone).toInstant()));
             }
@@ -305,7 +313,9 @@ public class TaskService {
             if (dueTo.isAfter(dueFrom.plusSeconds(370L * 24 * 60 * 60))) {
                 throw new IllegalArgumentException("到期日期范围不能超过 370 天");
             }
-            where.append(" AND t.due_at >= ? AND t.due_at < ?");
+            // 日期范围按「有交集」算：跨日任务只要在这个窗口里露过面就返回，
+            // 不必等结束那天落进窗口（否则查本周会看不到一个从周一开始的长任务）。
+            where.append(" AND t.due_at >= ? AND COALESCE(LEAST(t.start_at, t.due_at), t.due_at) < ?");
             args.add(Timestamp.from(dueFrom));
             args.add(Timestamp.from(dueTo));
         }
@@ -408,8 +418,8 @@ public class TaskService {
     }
 
     /**
-     * 今天到期且未完成的任务（只含当天，不含逾期）。日界按用户时区计算；
-     * 无到期日的任务不算今天到期。
+     * 今天有安排且未完成的任务：今天到期，或跨日任务的时间段覆盖今天（中间的日子也算）。
+     * 只含今天、不含逾期；日界按用户时区计算；无到期日的任务不算今天。
      */
     public List<TaskItem> todayTasks(int limit) {
         long userId = currentUser.id();
@@ -417,7 +427,7 @@ public class TaskService {
         int safeLimit = Math.min(Math.max(limit, 1), 500);
         ZoneId zone = userZone(userId);
         java.time.LocalDate today = java.time.LocalDate.now(zone);
-        return openTasksBetween(userId, today.atStartOfDay(zone).toInstant(),
+        return openTasksOverlapping(userId, today.atStartOfDay(zone).toInstant(),
                 today.plusDays(1).atStartOfDay(zone).toInstant(), safeLimit);
     }
 
@@ -438,10 +448,11 @@ public class TaskService {
                 List.of(userId, Timestamp.from(todayStart)), safeLimit, 0, userId);
     }
 
-    private List<TaskItem> openTasksBetween(long userId, Instant from, Instant to, int limit) {
+    /** 与 [from, to) 有交集的任务：跨日任务在区间内的任意一天都会命中，而不是只在结束那天。 */
+    private List<TaskItem> openTasksOverlapping(long userId, Instant from, Instant to, int limit) {
         return enrichedPage(" FROM task t JOIN task_list l ON l.id = t.list_id" +
                         " WHERE t.user_id = ? AND t.deleted = FALSE AND l.deleted = FALSE AND l.archived = FALSE" +
-                        " AND t.status = 'OPEN' AND t.due_at >= ? AND t.due_at < ?",
+                        " AND t.status = 'OPEN' AND t.due_at >= ? AND COALESCE(LEAST(t.start_at, t.due_at), t.due_at) < ?",
                 " ORDER BY t.due_at, t.priority DESC, t.id",
                 List.of(userId, Timestamp.from(from), Timestamp.from(to)), limit, 0, userId);
     }
