@@ -8,6 +8,17 @@
 
     <div class="row">
       <div class="lbl">
+        包含任务描述
+        <small>任务备注会写进事件详情；默认关闭，避免敏感内容进第三方日历</small>
+      </div>
+      <div class="ctl">
+        <SettingSwitch :model-value="includeDescription" label="包含任务描述" :disabled="savingDescription"
+          @update:model-value="toggleDescription" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="lbl">
         订阅地址
         <small v-if="feed.active">已生成 {{ feed.hint }}<template v-if="lastAccessed"> · 最近拉取 {{ lastAccessed }}</template></small>
         <small v-else>还没有生成，生成后才能添加订阅</small>
@@ -44,15 +55,20 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import Button from '../ui/Button.vue'
+import SettingSwitch from './SettingSwitch.vue'
 import { message } from '../../services/message.js'
 import { copyText } from '../../utils/clipboard.js'
 import {
-  apiCreateTaskFeedToken, apiGetTaskFeedToken, apiRevokeTaskFeedToken, apiRotateTaskFeedToken
+  apiCreateTaskFeedToken, apiGetTaskFeedToken, apiGetTaskSettings, apiRevokeTaskFeedToken,
+  apiRotateTaskFeedToken, apiUpdateTaskSettings
 } from '../../../packages/api-client/src/index.js'
 
 const feed = reactive({ active: false, hint: '', createdAt: null, lastAccessedAt: null })
 const url = ref('')
 const busy = ref(false)
+const includeDescription = ref(false)
+const savingDescription = ref(false)
+let settingsRevision = null
 
 function formatTime(value) {
   if (!value) return ''
@@ -74,6 +90,34 @@ async function load() {
     if (!feed.active) url.value = ''
   } catch {
     // 后端还没升级到带订阅接口的版本时，整块保持空态，不影响其它设置
+  }
+}
+
+async function loadSettings() {
+  try {
+    const data = await apiGetTaskSettings()
+    includeDescription.value = Boolean(data?.feedIncludeDescription)
+    settingsRevision = data?.revision ?? null
+  } catch {
+    // 设置接口不可用时开关保持关闭，不影响订阅地址本身
+  }
+}
+
+async function toggleDescription(next) {
+  if (savingDescription.value) return
+  const previous = includeDescription.value
+  includeDescription.value = next
+  savingDescription.value = true
+  try {
+    const saved = await apiUpdateTaskSettings({ feedIncludeDescription: next }, settingsRevision)
+    includeDescription.value = Boolean(saved?.feedIncludeDescription)
+    settingsRevision = saved?.revision ?? settingsRevision
+    message.success(next ? '订阅会带上任务描述' : '订阅不再带任务描述')
+  } catch (error) {
+    includeDescription.value = previous
+    message.error(error?.response?.data?.detail || '保存失败，请稍后重试')
+  } finally {
+    savingDescription.value = false
   }
 }
 
@@ -130,7 +174,10 @@ async function copy() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadSettings()
+})
 </script>
 
 <style scoped>
