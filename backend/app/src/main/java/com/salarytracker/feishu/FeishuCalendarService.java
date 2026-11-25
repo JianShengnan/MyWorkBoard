@@ -268,7 +268,9 @@ public class FeishuCalendarService {
                         LocalDate first = (start == null ? due : start).atZone(zone).toLocalDate();
                         LocalDate last = due.atZone(zone).toLocalDate();
                         if (last.isBefore(first)) last = first;
-                        return new Desired(key, title, note.toString(), true, first, last.plusDays(1), null, null);
+                        // 飞书的 date 是闭区间（含结束日）：传 25→25 表示只占 25 号一天，
+                        // 传 25→26 会占两天。读回时它统一把 end 写成「不含的次日」。
+                        return new Desired(key, title, note.toString(), true, first, last, null, null);
                     }
                     if (start != null && start.isBefore(due)) {
                         return new Desired(key, title, note.toString(), false, null, null, start, due);
@@ -299,7 +301,7 @@ public class FeishuCalendarService {
                     String key = "countdown:" + publicId + ":" + DATE.format(day);
                     LocalTime time = parseTime(precise);
                     if (time == null) {
-                        return new Desired(key, title, description.toString(), true, day, day.plusDays(1), null, null);
+                        return new Desired(key, title, description.toString(), true, day, day, null, null);
                     }
                     Instant at = day.atTime(time).atZone(zone).toInstant();
                     return new Desired(key, title, description.toString(), false, null, null, at, at.plusSeconds(1800));
@@ -351,7 +353,8 @@ public class FeishuCalendarService {
         }
         if (item.allDay()) {
             body.put("start_time", Map.of("date", DATE.format(item.startDate())));
-            // 全天事件的结束日期是「不含」的次日，写错会多占一天
+            // 飞书的 date 是闭区间：end 就是「占用的最后一天」，不是次日。
+            // 这里多写一天（last+1）会让单日任务在日历上整整跨两天。
             body.put("end_time", Map.of("date", DATE.format(item.endDate())));
             body.put("is_all_day", true);
         } else {

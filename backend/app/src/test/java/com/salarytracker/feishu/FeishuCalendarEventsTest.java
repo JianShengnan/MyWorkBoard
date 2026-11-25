@@ -34,6 +34,8 @@ class FeishuCalendarEventsTest extends MySqlIntegrationTestSupport {
 
         String allDay = createTask(userId, listId, "出差", today.minusDays(1).atStartOfDay(),
                 today.plusDays(2).atStartOfDay(), true);
+        String singleDay = createTask(userId, listId, "例会", today.plusDays(1).atStartOfDay(),
+                today.plusDays(1).atStartOfDay(), true);
         String timed = createTask(userId, listId, "上线值守", today.atTime(9, 0),
                 today.plusDays(1).atTime(18, 0), false);
         // 60 天后才开始，落在同步窗口外
@@ -41,14 +43,21 @@ class FeishuCalendarEventsTest extends MySqlIntegrationTestSupport {
                 today.plusDays(60).atTime(10, 0), false);
 
         List<FeishuCalendarService.Desired> events = service.taskEvents(userId, zone);
-        assertEquals(2, events.size(), "窗口外的任务不应参与同步");
+        assertEquals(3, events.size(), "窗口外的任务不应参与同步");
 
         var byKey = events.stream().collect(Collectors.toMap(FeishuCalendarService.Desired::key, item -> item));
         var span = byKey.get("task:" + allDay);
         assertNotNull(span);
         assertTrue(span.allDay(), "全天跨日任务应写成全天日程");
         assertEquals(today.minusDays(1), span.startDate());
-        assertEquals(today.plusDays(3), span.endDate(), "全天事件的结束日是「不含」的次日");
+        assertEquals(today.plusDays(2), span.endDate(),
+                "飞书的 date 是闭区间：结束日就是占用的最后一天，不能写次日，否则单日任务会跨两天");
+
+        var one = byKey.get("task:" + singleDay);
+        assertNotNull(one);
+        assertTrue(one.allDay());
+        assertEquals(one.startDate(), one.endDate(), "单日全天任务起止必须同一天，否则会跨两天");
+        assertEquals(today.plusDays(1), one.startDate());
 
         var block = byKey.get("task:" + timed);
         assertNotNull(block);
