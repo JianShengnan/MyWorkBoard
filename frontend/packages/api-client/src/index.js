@@ -384,3 +384,12 @@ export const apiGetToolPreference = async tool =>
 export const apiPutToolPreference = async (tool, payload, currentRevision) =>
   data(await api.put(`/api/v1/tools/${encodeURIComponent(tool)}/preference`, payload,
     { headers: { 'If-Match': revision(currentRevision) } }))
+
+// 站外推送：飞书 / Bark / 邮件。配置只在服务端保存，网页不落 localStorage。
+export async function apiListPushChannels() { return data(await api.get('/api/v1/push/channels')) }
+export async function apiSavePushChannel(kind, payload) { return data(await api.put(`/api/v1/push/channels/${kind}`, payload)) }
+export async function apiDeletePushChannel(kind) { return data(await api.delete(`/api/v1/push/channels/${kind}`)) }
+export async function apiTestPushChannel(kind) { return data(await api.post(`/api/v1/push/channels/${kind}/test`)) }
+export async function apiGetPushPreference() { return data(await api.get('/api/v1/push/preference')) }
+export async function apiSavePushPreference(payload) { return data(await api.put('/api/v1/push/preference', payload)) }
+export async function apiListPushDeliveries(limit = 20) { return data(await api.get('/api/v1/push/deliveries', { params: { limit } })) }

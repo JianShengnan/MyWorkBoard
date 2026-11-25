@@ -2,6 +2,7 @@ package com.salarytracker.task;
 
 import com.salarytracker.identity.CurrentUserResolver;
 import com.salarytracker.platform.NotFoundException;
+import com.salarytracker.push.PushService;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -25,11 +26,13 @@ public class TaskReminderService {
     private final JdbcTemplate jdbc;
     private final CurrentUserResolver currentUser;
     private final TaskInboxStream stream;
+    private final PushService push;
 
-    public TaskReminderService(JdbcTemplate jdbc, CurrentUserResolver currentUser, TaskInboxStream stream) {
+    public TaskReminderService(JdbcTemplate jdbc, CurrentUserResolver currentUser, TaskInboxStream stream, PushService push) {
         this.jdbc = jdbc;
         this.currentUser = currentUser;
         this.stream = stream;
+        this.push = push;
     }
 
     public List<TaskModels.Reminder> list(String taskPublicId) {
@@ -164,6 +167,8 @@ public class TaskReminderService {
                 "m.deep_link,m.read_at,m.created_at FROM task_inbox_message m LEFT JOIN task t ON t.id=m.task_id " +
                 "WHERE m.user_id=? AND m.dedupe_key=?", (row, number) -> message(row), userId, dedupe);
         if (!message.isEmpty()) stream.publish(userId, message.get(0));
+        push.dispatch(userId, "CHECKLIST_REMINDER", taskTitle, "检查项提醒：" + itemTitle,
+                "/tasks/all?task=" + taskPublicId);
     }
 
     @Transactional
@@ -193,6 +198,8 @@ public class TaskReminderService {
                 "m.deep_link,m.read_at,m.created_at FROM task_inbox_message m LEFT JOIN task t ON t.id=m.task_id " +
                 "WHERE m.user_id=? AND m.dedupe_key=?", (row, number) -> message(row), ref.userId(), dedupe);
         if (!message.isEmpty()) stream.publish(ref.userId(), message.get(0));
+        push.dispatch(ref.userId(), "TASK_REMINDER", ref.title(), "任务提醒 · 到点了",
+                "/tasks/all?task=" + ref.taskPublicId());
     }
 
     private TaskModels.Reminder get(long userId, String publicId) {

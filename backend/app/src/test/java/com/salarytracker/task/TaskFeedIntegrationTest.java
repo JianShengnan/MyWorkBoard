@@ -2,6 +2,7 @@ package com.salarytracker.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.salarytracker.identity.CurrentUserResolver;
+import com.salarytracker.push.PushService;
 import com.salarytracker.integration.MySqlIntegrationTestSupport;
 import org.junit.jupiter.api.Test;
 
@@ -26,7 +27,7 @@ class TaskFeedIntegrationTest extends MySqlIntegrationTestSupport {
         var list = tasks.createList(new TaskModels.TaskListCommand("订阅", null, null, 1, false), "feed-list");
         var task = tasks.create(new TaskModels.TaskCommand(list.publicId(), "公开标题", "私密描述", "HIGH", null,
                 Instant.now().plusSeconds(3600).toString(), false, "Asia/Shanghai", null), "feed-task");
-        TaskReminderService reminders = new TaskReminderService(jdbc, resolver, new TaskInboxStream());
+        TaskReminderService reminders = new TaskReminderService(jdbc, resolver, new TaskInboxStream(), mock(PushService.class));
         reminders.create(task.publicId(), new TaskModels.ReminderCommand("RELATIVE", 30, null, "IN_APP", false));
         TaskFeedService feeds = new TaskFeedService(jdbc, resolver);
 

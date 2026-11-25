@@ -2,6 +2,7 @@ package com.salarytracker.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.salarytracker.identity.CurrentUserResolver;
+import com.salarytracker.push.PushService;
 import com.salarytracker.integration.MySqlIntegrationTestSupport;
 import com.salarytracker.task.TaskModels.ReminderCommand;
 import com.salarytracker.task.TaskModels.TaskCommand;
@@ -27,7 +28,7 @@ class TaskRecurrenceReminderIntegrationTest extends MySqlIntegrationTestSupport 
         CurrentUserResolver current = current(userId);
         TaskService tasks = new TaskService(jdbc, current, new TaskChangeLog(jdbc,
                 new ObjectMapper().findAndRegisterModules()));
-        TaskReminderService reminders = new TaskReminderService(jdbc, current, new TaskInboxStream());
+        TaskReminderService reminders = new TaskReminderService(jdbc, current, new TaskInboxStream(), mock(PushService.class));
         var task = tasks.create(new TaskCommand(null, "每日复盘", "", "NONE", null,
                 Instant.now().minusSeconds(60).toString(), false, "UTC", null, null, null, null,
                 "FREQ=DAILY;COUNT=3", "DUE_DATE"), "repeat-create");
@@ -191,7 +192,7 @@ class TaskRecurrenceReminderIntegrationTest extends MySqlIntegrationTestSupport 
         CurrentUserResolver current = current(userId);
         TaskService tasks = new TaskService(jdbc, current, new TaskChangeLog(jdbc,
                 new ObjectMapper().findAndRegisterModules()));
-        TaskReminderService reminders = new TaskReminderService(jdbc, current, new TaskInboxStream());
+        TaskReminderService reminders = new TaskReminderService(jdbc, current, new TaskInboxStream(), mock(PushService.class));
         var task = tasks.create(new TaskCommand(null, "缴费", null, null, null, null, null, null, null), "remind-create");
         var reminder = reminders.create(task.publicId(), new ReminderCommand("ABSOLUTE", null,
                 "2026-10-10T00:00:00Z", "IN_APP", false));

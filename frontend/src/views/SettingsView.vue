@@ -20,6 +20,8 @@
 
     <AgentEntrySettings v-show="activeModule === 'general'" />
 
+    <SettingsPushPane v-show="activeModule === 'push'" />
+
     <div v-show="activeModule === 'account'" class="card set-group account-settings">
       <h2>账号</h2>
       <div class="row">
@@ -249,6 +251,7 @@ import { message } from '../services/message.js'
 import Button from '../components/ui/Button.vue'
 import Dialog from '../components/ui/Dialog.vue'
 import AgentEntrySettings from '../components/settings/AgentEntrySettings.vue'
+import SettingsPushPane from '../components/settings/SettingsPushPane.vue'
 import { useAppStore } from '../stores/app'
 import { CALC } from '../utils/calc'
 import { copyText } from '../utils/clipboard.js'
@@ -260,6 +263,7 @@ const settingModules = [
   { key: 'model', label: '模型与成本' },
   { key: 'operations', label: '运行质量' },
   { key: 'mcp', label: 'MCP / 外部 Agent' },
+  { key: 'push', label: '推送提醒' },
   { key: 'account', label: '账号' },
 ]
 const activeModule = ref('general')
