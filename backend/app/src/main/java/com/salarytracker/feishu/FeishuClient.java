@@ -5,10 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -35,9 +37,14 @@ public class FeishuClient {
     public FeishuClient(FeishuConfig config, ObjectMapper mapper) {
         this.config = config;
         this.mapper = mapper;
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(5_000);
-        factory.setReadTimeout(20_000);
+        // 必须用 JDK HttpClient：默认的 SimpleClientHttpRequestFactory 走 HttpURLConnection，
+        // 它不支持 PATCH，飞书的「更新日程」「更新卡片」全是 PATCH，会直接报 Invalid HTTP method。
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .version(HttpClient.Version.HTTP_1_1)
+                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        factory.setReadTimeout(Duration.ofSeconds(20));
         this.client = RestClient.builder().requestFactory(factory).build();
     }
 
