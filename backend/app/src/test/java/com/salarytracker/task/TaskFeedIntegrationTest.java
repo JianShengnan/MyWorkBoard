@@ -38,6 +38,10 @@ class TaskFeedIntegrationTest extends MySqlIntegrationTestSupport {
         String calendar = feeds.feed(raw, "127.0.0.1");
         assertTrue(calendar.contains("SUMMARY:公开标题"));
         assertTrue(calendar.contains("BEGIN:VALARM"));
+        // 清单与优先级要能在日历里看出来，否则只有一个标题，订阅等于没用
+        assertTrue(calendar.contains("CATEGORIES:订阅"));
+        assertTrue(calendar.contains("优先级：高"));
+        assertFalse(calendar.contains("DUE:"), "VEVENT 里不应出现 VTODO 的 DUE 属性");
         assertFalse(calendar.contains("私密描述"));
 
         var rotated = feeds.rotate("https://work.example");

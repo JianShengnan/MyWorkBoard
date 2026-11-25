@@ -98,11 +98,14 @@ public class FeishuCards {
     }
 
     private ObjectNode markdown(String content) {
+        // 模型很爱用 markdown 表格，但 lark_md 不渲染表格，会原样显示成一排竖线；
+        // 统一在这里改写成飞书认得的写法，所有卡片（回答、通知、流式帧）都走这一个出口。
+        String rendered = FeishuMarkdown.render(content);
         ObjectNode element = mapper.createObjectNode();
         element.put("tag", "div");
         ObjectNode text = element.putObject("text");
         text.put("tag", "lark_md");
-        text.put("content", content == null || content.isBlank() ? "（空）" : content);
+        text.put("content", rendered.isBlank() ? "（空）" : rendered);
         return element;
     }
 
