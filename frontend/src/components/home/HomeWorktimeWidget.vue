@@ -1,12 +1,8 @@
 <template>
-  <HomeWidgetFrame title="工时与加班" kicker="WORKTIME" :meta="`${stats.label} · ${stats.days} 天有记录`" :editing="editing">
+  <HomeWidgetFrame title="工时与加班" kicker="WORKTIME" :editing="editing">
     <template #actions>
-      <div class="hw-seg">
-        <button type="button" :class="{ active: range === 'week' }" @click="range = 'week'">本周</button>
-        <button type="button" :class="{ active: range === 'month' }" @click="range = 'month'">本月</button>
-        <button type="button" :class="{ active: range === 'year' }" @click="range = 'year'">本年</button>
-      </div>
-      <button class="hw-btn" type="button" @click="togglePunch"><Timer :size="13" />{{ punchLabel }}</button>    </template>
+      <button class="hw-btn" type="button" @click="togglePunch"><Timer :size="13" />{{ punchLabel }}</button>
+    </template>
 
     <div class="wt-stats">
       <div><small>工时</small><b>{{ hours(stats.totalMin) }}<i>h</i></b></div>
@@ -17,8 +13,13 @@
 
     <div class="wt-chart">
       <div class="wt-chart-head">
-        <span>时薪趋势</span>
-        <span>{{ stats.granularity === 'day' ? '按日' : '按月' }} · {{ hasSalary ? `基准 ¥${stats.baseRate.toFixed(1)}/h` : '未设置月薪' }}</span>
+        <!-- 范围切换跟图表放一行：卡片收窄到 4 栏后，标题行放不下「切换 + 按钮」两组控件 -->
+        <div class="hw-seg">
+          <button type="button" :class="{ active: range === 'week' }" @click="range = 'week'">本周</button>
+          <button type="button" :class="{ active: range === 'month' }" @click="range = 'month'">本月</button>
+          <button type="button" :class="{ active: range === 'year' }" @click="range = 'year'">本年</button>
+        </div>
+        <span class="wt-chart-note">{{ stats.granularity === 'day' ? '按日' : '按月' }} · {{ hasSalary ? `基准 ¥${stats.baseRate.toFixed(1)}/h` : '未设置月薪' }}</span>
       </div>
       <div v-if="hasSalary" class="wt-chart-plot">
         <LedgerReportChart :option="chartOption" aria-label="时薪趋势" height="100%" :show-table="false" />
@@ -160,19 +161,21 @@ async function savePunch() {
 </script>
 
 <style scoped>
-.wt-stats { display: grid; flex: none; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
-.wt-stats > div { min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
-.wt-stats small { display: block; color: var(--muted); font-size: 10px; }
-.wt-stats b { display: block; margin-top: 2px; overflow: hidden; color: var(--ink); font-size: 18px; font-weight: 720; letter-spacing: -.03em; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 统计固定单行四联：收到 4 栏宽后靠缩小字号/内边距容纳，不再折成两行把卡片撑高 */
+.wt-stats { display: grid; flex: none; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-bottom: 8px; }
+.wt-stats > div { min-width: 0; padding: 7px 8px; border: 1px solid var(--line); border-radius: 11px; background: var(--paper); }
+.wt-stats small { display: block; overflow: hidden; color: var(--muted); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+.wt-stats b { display: block; margin-top: 2px; overflow: hidden; color: var(--ink); font-size: 16px; font-weight: 720; letter-spacing: -.03em; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .wt-stats b i { margin-left: 2px; color: var(--muted); font-size: 10px; font-style: normal; font-weight: 600; }
 .wt-stats b.is-plus { color: var(--down); }
 .wt-chart { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 4px; }
-.wt-chart-head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 10.5px; }
-.wt-chart-head span:first-child { color: var(--ink2); font-weight: 650; }
-.wt-chart-plot { display: flex; min-height: 60px; flex: 1; flex-direction: column; }
+.wt-chart-head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10.5px; }
+/* 基准说明在窄卡里让位给切换器，超长省略而不是把 seg 挤变形 */
+.wt-chart-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wt-chart-plot { display: flex; min-height: 48px; flex: 1; flex-direction: column; }
 .wt-chart-plot :deep(.ledger-report-chart-wrap) { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .wt-chart-plot :deep(.ledger-report-chart) { flex: 1; min-height: 0; }
-.wt-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 60px; color: var(--muted); font-size: 11.5px; text-align: center; }
+.wt-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 48px; color: var(--muted); font-size: 11.5px; text-align: center; }
 .wt-empty b { color: var(--ink2); font-size: 12.5px; }
 .wt-empty .hw-btn { margin-top: 4px; text-decoration: none; }
 .wt-punch { display: flex; flex: none; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin-top: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--accent-soft) 34%, var(--card)); }
@@ -188,5 +191,6 @@ async function savePunch() {
 .wt-more { color: var(--accent); font-weight: 650; }
 .wt-punch-enter-active, .wt-punch-leave-active { transition: opacity .16s ease, transform .16s ease; }
 .wt-punch-enter-from, .wt-punch-leave-to { opacity: 0; transform: translateY(-4px); }
+/* 手机单列时卡片只有 360 上下，四联会挤成一字一行，退回两列 */
 @media (max-width: 720px) { .wt-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>

@@ -233,18 +233,16 @@ onMounted(async () => {
 .home-hidden-bar button { padding: 5px 10px; border: 1px dashed var(--line2); border-radius: 999px; background: var(--card); color: var(--ink2); font-size: 11.5px; }
 .home-hidden-bar button:hover { border-color: var(--accent); color: var(--accent); }
 .home-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
-.home-cell { position: relative; min-width: 0; }
-/* 同一行的卡片等高：高度写死在这里，卡片内部按 flex 分配，避免被邻居的内容高度拉扯 */
-.home-cell.hw-key-tasks, .home-cell.hw-key-calendar, .home-cell.hw-key-ledger { height: 500px; }
-.home-cell.hw-key-cashflow, .home-cell.hw-key-budget, .home-cell.hw-key-category,
-.home-cell.hw-key-assets { height: 330px; }
-.home-cell.hw-key-worktime, .home-cell.hw-key-ai { height: 360px; }
-/* 四张紧凑卡（戒烟/倒数日/发薪日/节假日）单独一排，高度按内容最小需求锁定 */
-.home-cell.hw-key-quit, .home-cell.hw-key-countdown,
-.home-cell.hw-key-payday, .home-cell.hw-key-holiday { height: 300px; }
+.home-cell { position: relative; min-width: 0; min-height: 330px; }
+/*
+ * 高度只给「下限」，不再写死：网格行默认 stretch，同一行里最高的那张卡决定行高，
+ * 其余卡片被拉伸对齐，换宽度或用户拖乱顺序都不会出现半行错位。
+ */
+.home-cell.hw-key-tasks, .home-cell.hw-key-calendar, .home-cell.hw-key-ledger { min-height: 480px; }
 .home-cell.span-3 { grid-column: span 3; }
 .home-cell.span-4 { grid-column: span 4; }
 .home-cell.span-5 { grid-column: span 5; }
+.home-cell.span-6 { grid-column: span 6; }
 .home-cell.span-8 { grid-column: span 8; }
 .home-cell.is-editing { cursor: grab; }
 .home-cell.is-editing:active { cursor: grabbing; }
@@ -258,19 +256,22 @@ onMounted(async () => {
 }
 .home-cell-hide:hover { border-color: var(--down); color: var(--down); }
 @media (max-width: 1439px) {
+  /* 6 栏网格：4/3 栏卡各占半行，6 栏卡独占一行，正好两两成对 */
   .home-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-  .home-cell.span-8, .home-cell.span-5 { grid-column: span 6; }
+  .home-cell.span-8, .home-cell.span-6, .home-cell.span-5 { grid-column: span 6; }
   .home-cell.span-4, .home-cell.span-3 { grid-column: span 3; }
+  /* 流水表列多，独占整行；资产与趋势各占半行，避免资产卡被流水的 440 高度拉开一截空白 */
+  .home-cell.hw-key-ledger { grid-column: span 6; min-height: 330px; }
+  .home-cell.hw-key-cashflow { grid-column: span 3; }
+  .home-cell.hw-key-tasks, .home-cell.hw-key-calendar { min-height: 440px; }
 }
 @media (max-width: 900px) {
   .home-canvas { padding: 18px 14px 32px; }
-  .home-cell.hw-key-tasks, .home-cell.hw-key-calendar, .home-cell.hw-key-ledger,
-  .home-cell.hw-key-cashflow, .home-cell.hw-key-budget, .home-cell.hw-key-category,
-  .home-cell.hw-key-assets, .home-cell.hw-key-worktime, .home-cell.hw-key-ai, .home-cell.hw-key-quit,
-  .home-cell.hw-key-countdown, .home-cell.hw-key-payday, .home-cell.hw-key-holiday { height: auto; min-height: 0; }
+  .home-cell { min-height: 0; }
+  .home-cell.hw-key-tasks, .home-cell.hw-key-calendar, .home-cell.hw-key-ledger { min-height: 0; }
   .home-head { align-items: flex-start; flex-direction: column; gap: 10px; }
   .home-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .home-cell.span-8, .home-cell.span-5, .home-cell.span-4, .home-cell.span-3 { grid-column: span 1; }
+  .home-cell.span-8, .home-cell.span-6, .home-cell.span-5, .home-cell.span-4, .home-cell.span-3 { grid-column: span 1; }
   .home-edit-bar { flex-direction: column; align-items: flex-start; gap: 6px; }
 }
 </style>

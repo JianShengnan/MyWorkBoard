@@ -55,7 +55,10 @@ test('layout survives a broken storage payload and is scoped per account', () =>
   writeLayout(key, toggleWidget(defaultLayout(), 'ai'), storage)
   assert.deepEqual(readLayout(key, storage).filter(item => item.hidden).map(item => item.key), ['ai'])
   assert.deepEqual(readLayout(layoutStorageKey('u2'), storage).map(item => item.key), HOME_WIDGET_KEYS)
-  assert.equal(widgetSpan('cashflow'), 5)
+  // cashflow 与 assets 各占半行，凑成完整 12 栏
+  assert.equal(widgetSpan('cashflow'), 6)
+  assert.equal(widgetSpan('assets'), 3)
+  assert.equal(widgetSpan('worktime'), 4)
   assert.equal(widgetSpan('unknown'), 4)
 })
 

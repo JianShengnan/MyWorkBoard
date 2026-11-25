@@ -6,16 +6,22 @@
  * 因此即使后端不可用，画布也保持用户上次的排布。
  */
 
-/** 卡片清单：key 同时是动态组件的标识，span 是 12 栏网格下的默认占宽 */
+/**
+ * 卡片清单：key 同时是动态组件的标识，span 是 12 栏网格下的默认占宽。
+ *
+ * 默认顺序按「每行正好 12 栏」分组，四行不留空档：
+ *   4+4+4 ｜ 3+6+3 ｜ 4+4+4 ｜ 3+3+3+3
+ * 账户资产与工时按内容量收窄（4→3、8→4），把宽度让给收支趋势与支出分类。
+ */
 export const HOME_WIDGETS = [
   { key: 'tasks', title: '任务与习惯', span: 4 },
   { key: 'calendar', title: '日历', span: 4 },
   { key: 'ledger', title: '最近流水', span: 4 },
-  { key: 'assets', title: '账户资产', span: 4 },
-  { key: 'cashflow', title: '收支趋势', span: 5 },
+  { key: 'assets', title: '账户资产', span: 3 },
+  { key: 'cashflow', title: '收支趋势', span: 6 },
   { key: 'budget', title: '预算执行', span: 3 },
   { key: 'category', title: '支出分类', span: 4 },
-  { key: 'worktime', title: '工时与加班', span: 8 },
+  { key: 'worktime', title: '工时与加班', span: 4 },
   { key: 'ai', title: 'AI 助手', span: 4 },
   // 下面四张固定 span 3，默认排成完整一行（4 × 3 = 12 栏）
   { key: 'quit', title: '戒烟', span: 3 },
