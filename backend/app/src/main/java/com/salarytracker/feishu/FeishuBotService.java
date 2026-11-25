@@ -190,8 +190,12 @@ public class FeishuBotService {
                 ? cards.noticeWithAction("需要你确认一下",
                         content + "\n\n写操作要先批准才会生效。", "orange", "去审批", "http://jsn1024.cn/approvals")
                 : cards.answer(firstLine(text), content, link);
-        if (live != null) live.finish(card);
-        else client.replyCard(incoming.messageId(), card);
+        try {
+            if (live != null) live.finish(card);
+            else client.replyCard(incoming.messageId(), card);
+        } finally {
+            if (live != null) live.stop();
+        }
         jdbc.update("UPDATE feishu_binding SET last_message_at=CURRENT_TIMESTAMP(3) WHERE open_id=?", incoming.openId());
     }
 
@@ -264,7 +268,7 @@ public class FeishuBotService {
         /** 用最终卡片覆盖；覆盖不上就补发一条，保证用户一定能看到回答。 */
         void finish(com.fasterxml.jackson.databind.node.ObjectNode card) {
             closed = true;
-            pump.shutdownNow();
+            stop();
             synchronized (lock) {
                 try {
                     client.patchCard(messageId, card);
@@ -281,7 +285,7 @@ public class FeishuBotService {
 
         void replace(com.fasterxml.jackson.databind.node.ObjectNode card) {
             closed = true;
-            pump.shutdownNow();
+            stop();
             synchronized (lock) {
                 try {
                     client.patchCard(messageId, card);
@@ -289,6 +293,12 @@ public class FeishuBotService {
                     log.warn("错误卡片更新失败：{}", exception.getMessage());
                 }
             }
+        }
+
+        /** 幂等收尾：任何分支漏了 finish/replace 也不会留下空转的定时线程。 */
+        void stop() {
+            closed = true;
+            pump.shutdownNow();
         }
     }
 
