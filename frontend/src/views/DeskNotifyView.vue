@@ -81,7 +81,8 @@ async function loadChannel() {
 
 function connect() {
   if (!topic.value || typeof EventSource === 'undefined') return
-  const url = `${server.value}/${encodeURIComponent(topic.value)}/sse`
+  // since=1h：打开页面时先补近一小时的缓存，否则空白一片要等下一次提醒
+  const url = `${server.value}/${encodeURIComponent(topic.value)}/sse?since=1h`
   source = new EventSource(url)
   source.onopen = () => { connected.value = true }
   source.onerror = () => { connected.value = false }
