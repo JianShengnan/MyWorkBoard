@@ -106,7 +106,7 @@
     <h2>日历同步（CalDAV）</h2>
     <p class="hint">
       CalDAV 是日历的通用协议，iPhone 日历、安卓的 DAVx5、Windows 的 Thunderbird 都原生支持。
-      任务和倒数日会写进一个独立日历，不依赖任何一家厂商的订阅功能。
+      任务、倒数日，以及每天的工时/专注/流水会写进这个日历——后三者合成一条「MM-DD 记录」，点开即为当天明细。
     </p>
 
     <div class="row">

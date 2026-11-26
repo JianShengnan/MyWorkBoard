@@ -592,3 +592,13 @@ sudo docker compose --env-file .env -f docker-compose.prod.yml up -d --no-deps b
   due 不会跟着移动，这是对的。
 - 账号密码改动必须同步两处：`~/salary-tracker/radicale/users` 与 `.env` 的 `CALDAV_PASSWORD`，
   否则同步会全线 401（表现为「上次同步失败 N 条」）。
+
+### 每日记录事件（day-*.ics）
+
+- 一天一条全天日程，`UID = day-<yyyy-MM-dd>@workboard`，`SUMMARY = MM-DD 记录`，
+  `DESCRIPTION` 分三段：工时（区间 + 净时长 + 加班）、专注（按任务/习惯聚合）、流水（最多 10 笔 + 合计）。
+- 只导出**有数据**的日期，窗口为回看 14 天 + 明天；`TRANSP:TRANSPARENT`，不占时间轴。
+- 这类事件只读：`pull()` 里对 `day-` 前缀直接跳过，客户端改了也不会回写。
+- 实现注意：**不要用 `jdbc.query(sql, lambda, args)` 收集副作用**。第一版写成带 `return null` 的 lambda，
+  编译通过、SQL 也有数据，但 map 全是空的（重载在 RowMapper / RowCallbackHandler 之间选了不执行的那个）。
+  改用 `jdbc.queryForList(sql, args)` 遍历 Map 之后一次就对了。
