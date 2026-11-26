@@ -415,14 +415,13 @@ public class CalDavService {
 
             String ics = fetch(collection, uid);
             if (ics == null) continue;
-            boolean changed = false;
             try {
-                changed = apply(userId, uid, ics, zone);
+                if (apply(userId, uid, ics, zone)) written += 1;
+                // 只有成功处理才记录 etag；失败要保留旧值，否则下一轮会被跳过、永远不再重试
+                jdbc.update("UPDATE caldav_event SET etag=? WHERE user_id=? AND event_uid=?", etag, userId, uid);
             } catch (RuntimeException exception) {
                 log.warn("CalDAV 回写失败 uid={}：{}", uid, exception.getMessage());
             }
-            if (changed) written += 1;
-            jdbc.update("UPDATE caldav_event SET etag=? WHERE user_id=? AND event_uid=?", etag, userId, uid);
         }
         return written;
     }
@@ -527,7 +526,7 @@ public class CalDavService {
                     current.checklist().stream().map(item -> new TaskModels.ChecklistCommand(
                             item.publicId(), item.title(), item.completed(), item.sortOrder())).toList(),
                     current.rrule(), current.recurrenceAnchor(), current.sortOrder(), current.itemKind());
-            tasks.update(publicId, command, null);
+            tasks.update(publicId, command, String.valueOf(current.revision()));
         });
         return true;
     }

@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 单日任务不能跨两天；指纹只随内容变化。
  */
 class CalDavEventsTest extends MySqlIntegrationTestSupport {
-    private final CalDavService service = new CalDavService(jdbc, "http://127.0.0.1:1", "u", "p");
+    private final CalDavService service = new CalDavService(jdbc, null, "http://127.0.0.1:1", "u", "p");
 
     @Test
     void allDayEventUsesExclusiveEndDate() {
