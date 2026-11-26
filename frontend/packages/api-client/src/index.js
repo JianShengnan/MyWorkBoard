@@ -406,7 +406,13 @@ export async function apiFeishuCalendarSync() { return data(await api.post('/api
 export async function apiFeishuCalendarScope(payload) { return data(await api.put('/api/v1/feishu/calendar/scope', payload)) }
 export async function apiFeishuCalendarDisable() { return data(await api.delete('/api/v1/feishu/calendar')) }
 
-export async function apiWeeklyReport(date) { return data(await api.get('/api/v1/reports/weekly', { params: date ? { date } : {} })) }
+export async function apiReport(type = 'WEEK', date) {
+  const path = type === 'MONTH' ? '/api/v1/reports/monthly' : '/api/v1/reports/weekly'
+  return data(await api.get(path, { params: date ? { date } : {} }))
+}
+export async function apiReportSummary(type = 'WEEK', date, refresh = false) {
+  return data(await api.get('/api/v1/reports/summary', { params: { type, date, refresh } }))
+}
 export async function apiCalDavStatus() { return data(await api.get('/api/v1/caldav/status')) }
 export async function apiCalDavToggle(enabled) { return data(await api.put('/api/v1/caldav', { enabled })) }
 export async function apiCalDavSync() { return data(await api.post('/api/v1/caldav/sync')) }

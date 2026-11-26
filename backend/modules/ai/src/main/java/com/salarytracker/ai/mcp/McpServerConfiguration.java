@@ -56,6 +56,7 @@ public class McpServerConfiguration {
     private static final String HABIT_PREFIX = "habit.";
     private static final String FOCUS_PREFIX = "focus.";
     private static final String COUNTDOWN_PREFIX = "countdown.";
+    private static final String REPORT_PREFIX = "report.";
     private final List<McpSyncServer> servers = new ArrayList<>();
 
     @Bean
@@ -268,7 +269,7 @@ public class McpServerConfiguration {
             return prepare ? McpPersonalTokenService.WORKTIME_PREPARE : McpPersonalTokenService.WORKTIME_READ;
         }
         if (name.startsWith(TASK_PREFIX) || name.startsWith(HABIT_PREFIX) || name.startsWith(FOCUS_PREFIX)
-                || name.startsWith(COUNTDOWN_PREFIX)) {
+                || name.startsWith(COUNTDOWN_PREFIX) || name.startsWith(REPORT_PREFIX)) {
             return prepare ? McpPersonalTokenService.TASK_PREPARE : McpPersonalTokenService.TASK_READ;
         }
         return null;
