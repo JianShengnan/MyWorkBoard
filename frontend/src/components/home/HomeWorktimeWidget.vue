@@ -7,7 +7,7 @@
     <div class="wt-stats">
       <div><small>工时</small><b>{{ hours(stats.totalMin) }}<i>h</i></b></div>
       <div><small>加班</small><b :class="{ 'is-plus': stats.overtimeMin > 0 }">{{ hours(stats.overtimeMin) }}<i>h</i></b></div>
-      <div><small>平均时薪</small><b>{{ stats.rate > 0 ? `¥${stats.rate.toFixed(1)}` : '—' }}</b></div>
+      <div><small>日均</small><b>{{ averageHours }}<i>h</i></b></div>
       <div><small>{{ stats.label }}工资</small><b>{{ stats.earned > 0 ? `¥${money(stats.earned)}` : '—' }}</b></div>
     </div>
 
@@ -19,15 +19,11 @@
           <button type="button" :class="{ active: range === 'month' }" @click="range = 'month'">本月</button>
           <button type="button" :class="{ active: range === 'year' }" @click="range = 'year'">本年</button>
         </div>
-        <span class="wt-chart-note">{{ stats.granularity === 'day' ? '按日' : '按月' }} · {{ hasSalary ? `基准 ¥${stats.baseRate.toFixed(1)}/h` : '未设置月薪' }}</span>
+        <span class="wt-chart-note">{{ stats.granularity === 'day' ? '按日' : '按月' }} · 单位 小时</span>
       </div>
-      <div v-if="hasSalary" class="wt-chart-plot">
-        <LedgerReportChart :option="chartOption" aria-label="时薪趋势" height="100%" :show-table="false" />
-      </div>
-      <div v-else class="wt-empty">
-        <b>还没有月薪设置</b>
-        <span>在设置页填写月薪后，这里会显示每日 / 每月时薪趋势</span>
-        <router-link class="hw-btn" to="/worktime/settings">去设置</router-link>
+      <div class="wt-chart-plot">
+        <LedgerReportChart :option="chartOption" aria-label="工时趋势" height="100%" :show-table="false" />
+        <span v-if="!stats.days" class="wt-empty-hint">这段时间还没有工时记录</span>
       </div>
     </div>
 
@@ -87,15 +83,15 @@ const stats = computed(() => worktimeStats({
   today: new Date()
 }))
 
-const hasSalary = computed(() => stats.value.baseRate > 0)
-
 const chartOption = computed(() => {
   const rows = stats.value.series
+  const monthly = stats.value.granularity === 'month'
   return {
-    grid: { left: 6, right: 14, top: 12, bottom: 2, containLabel: true },
+    // 卡片高度有限：纵轴只留 3 段刻度，否则刻度标签会挤成一团（表现为「看不到纵轴」）
+    grid: { left: 2, right: 10, top: 10, bottom: 0, containLabel: true },
     tooltip: {
       trigger: 'axis',
-      valueFormatter: value => (value == null ? '无记录' : `¥${Number(value).toFixed(2)}/h`),
+      valueFormatter: value => (value == null ? '无记录' : `${value} 小时`),
       textStyle: { fontSize: 11 }
     },
     xAxis: {
@@ -108,18 +104,26 @@ const chartOption = computed(() => {
     },
     yAxis: {
       type: 'value',
-      scale: true,
-      axisLabel: { color: '$muted', fontSize: 9, formatter: value => `¥${value}` },
+      min: 0,
+      splitNumber: 3,
+      axisLabel: { color: '$muted', fontSize: 9, formatter: value => `${value}h` },
       splitLine: { lineStyle: { color: '$line', type: 'dashed' } }
     },
     series: [{
-      name: '时薪', type: 'line', smooth: true, connectNulls: true, showSymbol: false,
-      data: rows.map(row => row.value),
+      name: monthly ? '月工时' : '日工时', type: 'line', smooth: true, connectNulls: true, showSymbol: false,
+      // minutes 为 0 表示当天没记录，用 null 让折线断开，避免把休息日画成 0 小时
+      data: rows.map(row => (row.minutes ? Math.round(row.minutes / 6) / 10 : null)),
       lineStyle: { color: '$accent', width: 2 },
       itemStyle: { color: '$accent' },
       areaStyle: { color: '$accent', opacity: .12 }
     }]
   }
+})
+
+const averageHours = computed(() => {
+  const days = stats.value.days || 0
+  if (!days) return '—'
+  return (Math.round((stats.value.totalMin / days / 60) * 10) / 10).toFixed(1)
 })
 
 function hours(minutes) { return hoursLabel(minutes) }
@@ -172,7 +176,8 @@ async function savePunch() {
 .wt-chart-head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10.5px; }
 /* 基准说明在窄卡里让位给切换器，超长省略而不是把 seg 挤变形 */
 .wt-chart-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wt-chart-plot { display: flex; min-height: 48px; flex: 1; flex-direction: column; }
+.wt-chart-plot { position: relative; display: flex; min-height: 92px; flex: 1; flex-direction: column; }
+.wt-empty-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px; }
 .wt-chart-plot :deep(.ledger-report-chart-wrap) { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .wt-chart-plot :deep(.ledger-report-chart) { flex: 1; min-height: 0; }
 .wt-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 48px; color: var(--muted); font-size: 11.5px; text-align: center; }
