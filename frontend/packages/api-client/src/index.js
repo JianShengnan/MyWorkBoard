@@ -405,3 +405,7 @@ export async function apiFeishuCalendarEnable() { return data(await api.post('/a
 export async function apiFeishuCalendarSync() { return data(await api.post('/api/v1/feishu/calendar/sync')) }
 export async function apiFeishuCalendarScope(payload) { return data(await api.put('/api/v1/feishu/calendar/scope', payload)) }
 export async function apiFeishuCalendarDisable() { return data(await api.delete('/api/v1/feishu/calendar')) }
+
+export async function apiCalDavStatus() { return data(await api.get('/api/v1/caldav/status')) }
+export async function apiCalDavToggle(enabled) { return data(await api.put('/api/v1/caldav', { enabled })) }
+export async function apiCalDavSync() { return data(await api.post('/api/v1/caldav/sync')) }

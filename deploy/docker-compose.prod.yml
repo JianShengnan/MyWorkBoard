@@ -49,6 +49,10 @@ services:
       APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL:-}
       # 推送正文里的跳转链接用这个；不传的话 PushService 会退回到硬编码的 http 地址。
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://jsn1024.cn}
+      # CalDAV（Radicale）：后端走容器内网，客户端走 https://jsn1024.cn/dav/
+      CALDAV_URL: ${CALDAV_URL:-}
+      CALDAV_USERNAME: ${CALDAV_USERNAME:-}
+      CALDAV_PASSWORD: ${CALDAV_PASSWORD:-}
       LLM_ENDPOINT: ${LLM_ENDPOINT:-https://api.deepseek.com/chat/completions}
       LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
       TZ: Asia/Shanghai

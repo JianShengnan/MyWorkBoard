@@ -35,6 +35,11 @@ mybatis-plus:
 
 app:
   public-base-url: ${APP_PUBLIC_BASE_URL:}
+  # CalDAV（Radicale）：url 是后端内部地址，客户端用 https://jsn1024.cn/dav/
+  caldav:
+    url: ${CALDAV_URL:}
+    username: ${CALDAV_USERNAME:}
+    password: ${CALDAV_PASSWORD:}
   mcp:
     enabled: ${APP_MCP_ENABLED:true}
     write-enabled: ${APP_MCP_WRITE_ENABLED:false}

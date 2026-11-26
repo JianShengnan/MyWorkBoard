@@ -101,6 +101,63 @@
       关闭只停止维护，飞书里的日历和已有日程会保留，可以自己删。同步是单向的：在飞书里改日程不会回写任务。
     </p>
   </div>
+
+  <div class="card set-group caldav">
+    <h2>日历同步（CalDAV）</h2>
+    <p class="hint">
+      CalDAV 是日历的通用协议，iPhone 日历、安卓的 DAVx5、Windows 的 Thunderbird 都原生支持。
+      任务和倒数日会写进一个独立日历，不依赖任何一家厂商的订阅功能。
+    </p>
+
+    <div class="row">
+      <div class="lbl">
+        服务器地址
+        <small>添加日历时填这个地址与下面的用户名</small>
+      </div>
+      <div class="ctl">
+        <code class="caldav-url">{{ cd.url || '服务端未配置' }}</code>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="lbl">
+        账号
+        <small>密码由部署时生成，填写在客户端的「密码」一栏</small>
+      </div>
+      <div class="ctl"><code>{{ cd.username || '-' }}</code></div>
+    </div>
+
+    <div class="row">
+      <div class="lbl">
+        同步状态
+        <small v-if="cd.enabled">
+          已开启 · {{ cd.lastEventCount }} 个事件<template v-if="cd.lastSyncedAt"> · 最近同步 {{ formatTime(cd.lastSyncedAt) }}</template>
+        </small>
+        <small v-else>未开启</small>
+      </div>
+      <div class="ctl">
+        <Button size="sm" variant="ghost" :disabled="cdBusy" @click="syncCaldav">
+          {{ cdBusy ? '同步中…' : '立即同步' }}
+        </Button>
+        <SettingSwitch :model-value="cd.enabled" label="启用" :disabled="cdBusy"
+          @update:model-value="toggleCaldav" />
+      </div>
+    </div>
+
+    <p v-if="cd.lastError" class="hint error">上次同步失败：{{ cd.lastError }}</p>
+
+    <div class="feed-steps">
+      <p class="hint"><b>添加方法</b></p>
+      <ol>
+        <li><b>iPhone / Mac</b>：设置 → 日历 → 账户 → 添加账户 → 其他 → 「添加 CalDAV 账户」→ 服务器填上面的地址，用户名密码照填。</li>
+        <li><b>安卓</b>：装 DAVx5 → 添加账户 → 选「使用 URL 和用户名登录」→ 填上面的地址与账号。</li>
+        <li><b>Windows</b>：Thunderbird → 新建日历 → 「位于网络上」→ 填地址与账号。</li>
+      </ol>
+      <p class="hint">
+        目前是单向导出（网站 → 日历）；在客户端改日程暂不会回写任务。
+      </p>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -109,6 +166,7 @@ import Button from '../ui/Button.vue'
 import SettingSwitch from './SettingSwitch.vue'
 import { message } from '../../services/message.js'
 import { copyText } from '../../utils/clipboard.js'
+import { apiCalDavStatus, apiCalDavSync, apiCalDavToggle } from '../../../packages/api-client/src/index.js'
 import {
   apiCreateTaskFeedToken, apiFeishuCalendarDisable, apiFeishuCalendarEnable, apiFeishuCalendarScope,
   apiFeishuCalendarStatus, apiFeishuCalendarSync, apiGetTaskFeedToken, apiGetTaskSettings,
@@ -320,10 +378,56 @@ async function updateScope(patch) {
   }
 }
 
+// ---------------------------------------------------------------- CalDAV
+
+const cd = reactive({
+  configured: false, enabled: false, url: '', username: '',
+  lastSyncedAt: null, lastEventCount: 0, lastError: null
+})
+const cdBusy = ref(false)
+
+async function loadCaldav() {
+  try {
+    Object.assign(cd, await apiCalDavStatus())
+  } catch {
+    // 后端版本较旧时保持未配置状态，不打断页面
+  }
+}
+
+async function syncCaldav() {
+  if (cdBusy.value) return
+  cdBusy.value = true
+  try {
+    const result = await apiCalDavSync()
+    await loadCaldav()
+    message.success(`已同步 ${result?.total ?? 0} 个事件（新增 ${result?.created ?? 0}、更新 ${result?.updated ?? 0}）`)
+  } catch (error) {
+    await loadCaldav()
+    message.error(error?.response?.data?.detail || '同步失败，请稍后重试')
+  } finally {
+    cdBusy.value = false
+  }
+}
+
+async function toggleCaldav(value) {
+  if (cdBusy.value) return
+  cdBusy.value = true
+  try {
+    Object.assign(cd, await apiCalDavToggle(value))
+    message.success(value ? '已开启日历同步' : '已关闭日历同步')
+  } catch (error) {
+    await loadCaldav()
+    message.error(error?.response?.data?.detail || '保存失败')
+  } finally {
+    cdBusy.value = false
+  }
+}
+
 onMounted(() => {
   load()
   loadSettings()
   loadFeishu()
+  loadCaldav()
 })
 </script>
 
@@ -354,6 +458,7 @@ onMounted(() => {
   font-size: 11.5px;
   line-height: 1.9;
 }
+.caldav-url { display: inline-block; max-width: 100%; overflow-wrap: anywhere; font-size: 12px; }
 .feed-steps b { color: var(--ink); font-weight: 600; }
 .feishu-calendar .hint { margin: 0 0 12px; color: var(--muted); font-size: 11.5px; line-height: 1.7; }
 .feishu-calendar .hint.error { color: var(--danger, #d64545); }
