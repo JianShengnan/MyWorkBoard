@@ -7,7 +7,14 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.client.RestClient;
+import com.salarytracker.identity.CurrentUser;
+import com.salarytracker.task.TaskModels;
+import com.salarytracker.task.TaskService;
 
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
@@ -55,12 +62,14 @@ public class CalDavService {
     private final String baseUrl;
     private final String username;
     private final String password;
+    private final TaskService tasks;
 
-    public CalDavService(JdbcTemplate jdbc,
+    public CalDavService(JdbcTemplate jdbc, TaskService tasks,
                          @Value("${app.caldav.url:}") String baseUrl,
                          @Value("${app.caldav.username:}") String username,
                          @Value("${app.caldav.password:}") String password) {
         this.jdbc = jdbc;
+        this.tasks = tasks;
         this.baseUrl = baseUrl == null ? "" : baseUrl.trim();
         this.username = username == null ? "" : username.trim();
         this.password = password == null ? "" : password;
@@ -83,7 +92,7 @@ public class CalDavService {
     record Desired(String uid, String kind, String ics, String fingerprint) {
     }
 
-    private record Row(String uid, String kind, String fingerprint) {
+    private record Row(String uid, String kind, String fingerprint, String etag) {
     }
 
     // ---------------------------------------------------------------- 状态与开关
@@ -147,12 +156,16 @@ public class CalDavService {
             desired.addAll(countdownEvents(userId, zone));
 
             Map<String, Row> existing = new LinkedHashMap<>();
-            jdbc.query("SELECT event_uid,kind,fingerprint FROM caldav_event WHERE user_id=?",
+            jdbc.query("SELECT event_uid,kind,fingerprint,etag FROM caldav_event WHERE user_id=?",
                     (result, index) -> {
                         existing.put(result.getString(1),
-                                new Row(result.getString(1), result.getString(2), result.getString(3)));
+                                new Row(result.getString(1), result.getString(2), result.getString(3),
+                                        result.getString(4)));
                         return null;
                     }, userId);
+
+            // 先拉远端：客户端改过的先回写，再做本地导出，避免两边互相覆盖
+            int pulled = pull(userId, collection, zone);
 
             int created = 0;
             int updated = 0;
@@ -164,15 +177,16 @@ public class CalDavService {
                 Row row = existing.get(item.uid());
                 try {
                     if (row == null) {
-                        put(collection, item);
-                        jdbc.update("INSERT INTO caldav_event(user_id,event_uid,kind,fingerprint) VALUES(?,?,?,?) " +
-                                        "ON DUPLICATE KEY UPDATE fingerprint=?,kind=?",
-                                userId, item.uid(), item.kind(), item.fingerprint(), item.fingerprint(), item.kind());
+                        String pushedEtag = put(collection, item);
+                        jdbc.update("INSERT INTO caldav_event(user_id,event_uid,kind,fingerprint,etag) VALUES(?,?,?,?,?) " +
+                                        "ON DUPLICATE KEY UPDATE fingerprint=?,kind=?,etag=?",
+                                userId, item.uid(), item.kind(), item.fingerprint(), pushedEtag,
+                                item.fingerprint(), item.kind(), pushedEtag);
                         created += 1;
                     } else if (!item.fingerprint().equals(row.fingerprint())) {
-                        put(collection, item);
-                        jdbc.update("UPDATE caldav_event SET fingerprint=?,kind=?,synced_at=CURRENT_TIMESTAMP(3) " +
-                                "WHERE user_id=? AND event_uid=?", item.fingerprint(), item.kind(), userId, item.uid());
+                        String pushedEtag = put(collection, item);
+                        jdbc.update("UPDATE caldav_event SET fingerprint=?,kind=?,etag=?,synced_at=CURRENT_TIMESTAMP(3) " +
+                                "WHERE user_id=? AND event_uid=?", item.fingerprint(), item.kind(), pushedEtag, userId, item.uid());
                         updated += 1;
                     }
                 } catch (RuntimeException exception) {
@@ -195,10 +209,11 @@ public class CalDavService {
             jdbc.update("UPDATE caldav_sync SET last_synced_at=CURRENT_TIMESTAMP(3),last_event_count=?," +
                             "last_error=? WHERE user_id=?",
                     desired.size(), failed == 0 ? null : (failed + " 条失败，详见日志"), userId);
-            log.info("CalDAV 同步完成 user={} +{} ~{} -{} 失败{} 共{}",
-                    userId, created, updated, deleted, failed, desired.size());
-            return new SyncResult(failed == 0, created, updated, deleted, desired.size(),
-                    failed == 0 ? "同步完成" : failed + " 条失败");
+            log.info("CalDAV 同步完成 user={} +{} ~{} -{} 回写{} 失败{} 共{}",
+                    userId, created, updated, deleted, pulled, failed, desired.size());
+            String detail = (failed == 0 ? "同步完成" : failed + " 条失败")
+                    + (pulled > 0 ? "，回写 " + pulled + " 条" : "");
+            return new SyncResult(failed == 0, created, updated, deleted, desired.size(), detail);
         } catch (RuntimeException exception) {
             jdbc.update("UPDATE caldav_sync SET last_error=? WHERE user_id=?",
                     shorten(exception.getMessage()), userId);
@@ -367,18 +382,252 @@ public class CalDavService {
                 .append("METHOD:PUBLISH\r\n");
     }
 
+
+    // ---------------------------------------------------------------- 回写（客户端 → 网站）
+
+    /**
+     * 拉远端 etag，只有「etag 变了」的事件才回读内容。
+     *
+     * <p>判断依据是 etag 而不是「内容 hash」：我们自己 PUT 之后也会拿到新 etag，
+     * 处理完把它记下来，下一轮就不会再进这里。真正需要防的是来回振荡，
+     * 所以在回写前会逐字段比对，完全一致就只更新 etag、不写库。</p>
+     */
+    private int pull(long userId, String collection, ZoneId zone) {
+        Map<String, String> etags;
+        try {
+            etags = propfindEtags(collection);
+        } catch (RuntimeException exception) {
+            log.warn("CalDAV 拉取远端事件失败：{}", exception.getMessage());
+            return 0;
+        }
+        int written = 0;
+        for (Map.Entry<String, String> entry : etags.entrySet()) {
+            String uid = uidOf(entry.getKey());
+            if (uid == null || uid.startsWith("countdown-")) continue;
+            String etag = entry.getValue();
+            List<Row> rows = jdbc.query("SELECT event_uid,kind,fingerprint,etag FROM caldav_event " +
+                            "WHERE user_id=? AND event_uid=?",
+                    (rs, i) -> new Row(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)),
+                    userId, uid);
+            if (rows.isEmpty()) continue;
+            Row row = rows.get(0);
+            if (etag != null && etag.equals(row.etag())) continue;
+
+            String ics = fetch(collection, uid);
+            if (ics == null) continue;
+            boolean changed = false;
+            try {
+                changed = apply(userId, uid, ics, zone);
+            } catch (RuntimeException exception) {
+                log.warn("CalDAV 回写失败 uid={}：{}", uid, exception.getMessage());
+            }
+            if (changed) written += 1;
+            jdbc.update("UPDATE caldav_event SET etag=? WHERE user_id=? AND event_uid=?", etag, userId, uid);
+        }
+        return written;
+    }
+
+    private Map<String, String> propfindEtags(String collection) {
+        String path = collection.endsWith("/") ? collection : collection + "/";
+        String body = """
+                <?xml version="1.0" encoding="utf-8"?>
+                <D:propfind xmlns:D="DAV:"><D:prop><D:getetag/></D:prop></D:propfind>""";
+        var response = client.method(org.springframework.http.HttpMethod.valueOf("PROPFIND"))
+                .uri(baseUrl + path)
+                .header("Authorization", authorization())
+                .header("Depth", "1")
+                .header("Content-Type", "application/xml; charset=utf-8")
+                .body(body)
+                .retrieve()
+                .toEntity(String.class);
+        Map<String, String> result = new LinkedHashMap<>();
+        try {
+            var factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            var document = factory.newDocumentBuilder()
+                    .parse(new java.io.ByteArrayInputStream(
+                            response.getBody() == null ? new byte[0]
+                                    : response.getBody().getBytes(StandardCharsets.UTF_8)));
+            var responses = document.getElementsByTagNameNS("DAV:", "response");
+            for (int i = 0; i < responses.getLength(); i += 1) {
+                var element = (org.w3c.dom.Element) responses.item(i);
+                var hrefs = element.getElementsByTagNameNS("DAV:", "href");
+                var etags = element.getElementsByTagNameNS("DAV:", "getetag");
+                if (hrefs.getLength() == 0 || etags.getLength() == 0) continue;
+                String href = hrefs.item(0).getTextContent();
+                String etag = etags.item(0).getTextContent();
+                if (href == null || !href.endsWith(".ics")) continue;
+                result.put(href, etag == null ? "" : etag.replace("\"", "").trim());
+            }
+        } catch (Exception exception) {
+            throw new IllegalStateException("解析 PROPFIND 失败：" + exception.getMessage(), exception);
+        }
+        return result;
+    }
+
+    private String fetch(String collection, String uid) {
+        String path = collection.endsWith("/") ? collection : collection + "/";
+        try {
+            var response = client.get().uri(baseUrl + path + uid + ".ics")
+                    .header("Authorization", authorization())
+                    .retrieve()
+                    .toEntity(String.class);
+            return response.getBody();
+        } catch (RuntimeException exception) {
+            return null;
+        }
+    }
+
+    /** 把远端事件写回任务；完全一致时返回 false（只更新 etag，不写库）。 */
+    private boolean apply(long userId, String uid, String ics, ZoneId zone) {
+        Parsed parsed = parse(ics);
+        if (parsed == null || parsed.summary() == null) return false;
+        String publicId = uid.substring("task-".length(), uid.indexOf('@'));
+        List<Object[]> rows = jdbc.query(
+                "SELECT id,title,start_at,due_at,all_day FROM task WHERE public_id=? AND user_id=? AND deleted=FALSE",
+                (rs, i) -> new Object[]{rs.getLong(1), rs.getString(2), rs.getTimestamp(3), rs.getTimestamp(4), rs.getBoolean(5)},
+                publicId, userId);
+        if (rows.isEmpty()) return false;
+        Object[] row = rows.get(0);
+        String currentTitle = (String) row[1];
+        java.time.Instant currentStart = row[2] == null ? null : ((Timestamp) row[2]).toInstant();
+        java.time.Instant currentDue = row[3] == null ? null : ((Timestamp) row[3]).toInstant();
+        boolean currentAllDay = (Boolean) row[4];
+
+        java.time.Instant newStart;
+        java.time.Instant newDue;
+        if (parsed.allDay()) {
+            LocalDate startDay = LocalDate.parse(parsed.dtStart(), DATE);
+            LocalDate endDay = parsed.dtEnd() == null ? startDay : LocalDate.parse(parsed.dtEnd(), DATE);
+            newStart = startDay.atStartOfDay(zone).toInstant();
+            // iCal 的 DTEND 是不含的次日，减一天才是占用的最后一天
+            newDue = endDay.minusDays(1).atStartOfDay(zone).toInstant();
+        } else {
+            newStart = parseInstant(parsed.dtStart());
+            newDue = parseInstant(parsed.dtEnd());
+            if (newDue == null) newDue = newStart;
+        }
+        if (newStart == null) return false;
+
+        boolean sameTitle = parsed.summary().equals(currentTitle);
+        boolean sameStart = currentStart != null && currentStart.equals(newStart);
+        boolean sameDue = currentDue != null && currentDue.equals(newDue);
+        boolean sameAllDay = currentAllDay == parsed.allDay();
+        if (sameTitle && sameStart && sameDue && sameAllDay) return false;
+
+        java.time.Instant finalStart = newStart;
+        java.time.Instant finalDue = newDue;
+        boolean finalAllDay = parsed.allDay();
+        runAs(userId, () -> {
+            TaskModels.TaskItem current = tasks.get(publicId);
+            TaskModels.TaskCommand command = new TaskModels.TaskCommand(
+                    current.listId(), parsed.summary(), current.description(), current.priority(),
+                    finalStart.toString(), finalDue.toString(), finalAllDay, current.timezone(),
+                    null, current.parentId(), current.tagIds(),
+                    current.checklist().stream().map(item -> new TaskModels.ChecklistCommand(
+                            item.publicId(), item.title(), item.completed(), item.sortOrder())).toList(),
+                    current.rrule(), current.recurrenceAnchor(), current.sortOrder(), current.itemKind());
+            tasks.update(publicId, command, null);
+        });
+        return true;
+    }
+
+    private void runAs(long userId, Runnable action) {
+        List<Object[]> users = jdbc.query("SELECT username,nickname FROM app_user WHERE id=?",
+                (rs, i) -> new Object[]{rs.getString(1), rs.getString(2)}, userId);
+        String username = users.isEmpty() ? "caldav" : (String) users.get(0)[0];
+        String nickname = users.isEmpty() ? "caldav" : (String) users.get(0)[1];
+        CurrentUser user = new CurrentUser(userId, username, nickname, Set.of("task:read", "task:write"));
+        SecurityContext previous = SecurityContextHolder.getContext();
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new UsernamePasswordAuthenticationToken(user, null,
+                user.authorities().stream().map(SimpleGrantedAuthority::new).toList()));
+        SecurityContextHolder.setContext(context);
+        try {
+            action.run();
+        } finally {
+            SecurityContextHolder.setContext(previous);
+        }
+    }
+
+    private record Parsed(String summary, String dtStart, String dtEnd, boolean allDay) {
+    }
+
+    /** 只解析 VEVENT 的顶层属性；续行（以空格开头）先拼回去，否则长标题会被截断。 */
+    private Parsed parse(String ics) {
+        if (ics == null) return null;
+        String unfolded = ics.replace("\r\n ", "").replace("\n ", "");
+        String summary = null;
+        String start = null;
+        String end = null;
+        boolean allDay = false;
+        boolean inEvent = false;
+        for (String line : unfolded.split("\\r?\\n")) {
+            if (line.startsWith("BEGIN:VEVENT")) {
+                inEvent = true;
+                continue;
+            }
+            if (line.startsWith("END:VEVENT")) break;
+            if (!inEvent) continue;
+            if (line.startsWith("SUMMARY:")) summary = unescape(line.substring(8));
+            else if (line.startsWith("DTSTART")) {
+                int idx = line.indexOf(':');
+                if (idx > 0) {
+                    allDay = line.substring(0, idx).contains("VALUE=DATE");
+                    start = line.substring(idx + 1).trim();
+                }
+            } else if (line.startsWith("DTEND")) {
+                int idx = line.indexOf(':');
+                if (idx > 0) end = line.substring(idx + 1).trim();
+            }
+        }
+        if (start == null) return null;
+        return new Parsed(summary, start, end, allDay);
+    }
+
+    private java.time.Instant parseInstant(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            if (value.endsWith("Z")) {
+                return java.time.LocalDateTime.parse(value.substring(0, value.length() - 1),
+                        java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")).toInstant(java.time.ZoneOffset.UTC);
+            }
+            return LocalDate.parse(value, DATE).atStartOfDay(ZoneId.of("UTC")).toInstant();
+        } catch (RuntimeException exception) {
+            return null;
+        }
+    }
+
+    private String unescape(String value) {
+        return value.replace("\\n", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\");
+    }
+
+    private String uidOf(String href) {
+        if (href == null) return null;
+        int slash = href.lastIndexOf('/');
+        String name = slash >= 0 ? href.substring(slash + 1) : href;
+        if (!name.endsWith(".ics")) return null;
+        try {
+            return java.net.URLDecoder.decode(name.substring(0, name.length() - 4), StandardCharsets.UTF_8);
+        } catch (RuntimeException exception) {
+            return name.substring(0, name.length() - 4);
+        }
+    }
+
     // ---------------------------------------------------------------- CalDAV 调用
 
-    private void put(String collection, Desired item) {
+    private String put(String collection, Desired item) {
         String path = collection.endsWith("/") ? collection : collection + "/";
         String url = baseUrl + path + item.uid() + ".ics";
         String body = fold(item.ics());
-        client.put().uri(url)
+        var response = client.put().uri(url)
                 .header("Authorization", authorization())
                 .header("Content-Type", "text/calendar; charset=utf-8")
                 .body(body)
                 .retrieve()
                 .toBodilessEntity();
+        String etag = response.getHeaders().getETag();
+        return etag == null ? null : etag.replace("\"", "");
     }
 
     private void delete(String collection, String uid) {
