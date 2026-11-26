@@ -539,3 +539,25 @@ sudo docker compose --env-file .env -f docker-compose.prod.yml up -d --no-deps b
 本地验证：AgentConversationIntegrationTest、ArchitectureBoundaryTest、AgentOrchestratorTest、AgentEvaluationContractTest 定向共 25 项通过，包含独立 Testcontainers MySQL；前端卡片恢复单测、类型检查与生产构建通过。本地打包后重启 salary-backend，更新 frontend/dist 并启动 Vite 5173；服务刷新结果以本轮交付说明为准。未推送或部署云端，前端操作待按手工清单验收。
 
 本轮刷新结果：后端打包及容器重启成功，`http://127.0.0.1:8080/api/health` 返回 `{"ok":true}`；Vite `5173` 与本地 Nginx `80` 首页均返回 HTTP 200。
+
+## HTTPS（2026-11-26）
+
+- 证书：`sudo certbot certonly --standalone -d jsn1024.cn`，产物在 `/etc/letsencrypt/live/jsn1024.cn/`，
+  已改为 **webroot** 续期（`/var/www/certbot`，由 80 端口的 `/.well-known/acme-challenge/` 提供），
+  续期后 `renew_hook` 自动 `docker exec salary-frontend nginx -s reload`。
+- nginx 拆成两个 server：80 只做 ACME 与 `301 https://jsn1024.cn$request_uri`（**固定域名**，
+  跳到 IP 会证书不匹配）；443 承载业务。location 抽到 `deploy/nginx-locations.conf`，两处共用。
+- compose：frontend 映射 `443:443`，并挂载 `nginx.conf`、`nginx-locations.conf`、
+  `/etc/letsencrypt`（只读）、`/var/www/certbot`。
+- `.env`：`APP_PUBLIC_BASE_URL=https://jsn1024.cn`、`APP_PUBLIC_URL=https://jsn1024.cn`、`COOKIE_SECURE=true`。
+- 排错要点：`proxy_pass` 写死 upstream 主机名时 nginx 在**启动期**解析，容器不在就会 `emerg` 退出并让整站 502；
+  需要用 `resolver 127.0.0.11` + 变量写法。
+
+## ntfy 推送服务
+
+- 容器 `salary-ntfy`（`binwiederhier/ntfy`），仅在 `salary-net` 内监听 80，对外由 nginx 反代。
+- **ntfy 不支持子路径部署**（`base-url` 带路径会直接拒绝启动），必须用独立子域名：
+  `NTFY_BASE_URL=https://ntfy.jsn1024.cn`，DNS 需加 A 记录指向本机，并把该域名并入证书
+  （`certbot certonly --webroot -w /var/www/certbot -d jsn1024.cn -d ntfy.jsn1024.cn --expand`）。
+- 发布用 JSON：`POST /`，body 带 `topic`，`Content-Type: application/json`。
+  `POST /{topic}` 只吃纯文本，塞 JSON 会被原样当正文。
