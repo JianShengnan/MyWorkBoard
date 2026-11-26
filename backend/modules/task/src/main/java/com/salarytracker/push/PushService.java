@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
 @Service
 public class PushService {
     private static final Logger log = LoggerFactory.getLogger(PushService.class);
-    private static final Set<String> KINDS = Set.of("FEISHU", "BARK", "EMAIL");
+    private static final Set<String> KINDS = Set.of("FEISHU", "BARK", "NTFY", "EMAIL");
 
     private final JdbcTemplate jdbc;
     private final CurrentUserResolver currentUser;
@@ -239,7 +239,7 @@ public class PushService {
 
     private List<PushModels.Channel> queryChannels(long userId, String kind) {
         String sql = "SELECT id,kind,enabled,config,last_test_at,last_test_ok,last_error,last_sent_at,revision " +
-                "FROM push_channel WHERE user_id=?" + (kind == null ? "" : " AND kind=?") + " ORDER BY FIELD(kind,'FEISHU','BARK','EMAIL'),id";
+                "FROM push_channel WHERE user_id=?" + (kind == null ? "" : " AND kind=?") + " ORDER BY FIELD(kind,'FEISHU','BARK','NTFY','EMAIL'),id";
         Object[] args = kind == null ? new Object[]{userId} : new Object[]{userId, kind};
         return jdbc.query(sql, (row, number) -> {
             Map<String, String> config = parse(row.getString("config"));
@@ -284,6 +284,17 @@ public class PushService {
                 if (key.isEmpty()) throw new IllegalArgumentException("Bark Device Key 不能为空");
                 config.put("key", key);
                 config.put("server", clean(input.get("server"), 300));
+            }
+            case "NTFY" -> {
+                String topic = clean(input.get("topic"), 120);
+                if (topic.isEmpty()) throw new IllegalArgumentException("ntfy 主题不能为空");
+                // 主题名相当于凭证：ntfy 默认不鉴权，谁订阅到这个主题谁就能收
+                if (!topic.matches("^[A-Za-z0-9_-]{4,}$")) {
+                    throw new IllegalArgumentException("ntfy 主题只能用字母、数字、下划线和短横线，至少 4 位");
+                }
+                config.put("topic", topic);
+                config.put("server", clean(input.get("server"), 300));
+                config.put("token", clean(input.get("token"), 300));
             }
             case "EMAIL" -> {
                 String to = clean(input.get("to"), 300);
@@ -363,6 +374,7 @@ public class PushService {
         return switch (kind) {
             case "FEISHU" -> "飞书群机器人";
             case "BARK" -> "Bark";
+            case "NTFY" -> "ntfy";
             case "EMAIL" -> "邮件";
             default -> kind;
         };

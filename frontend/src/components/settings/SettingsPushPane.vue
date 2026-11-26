@@ -163,6 +163,16 @@ const CHANNELS = [
     ]
   },
   {
+    kind: 'NTFY',
+    title: 'ntfy（安卓 / 电脑）',
+    desc: '装 ntfy App 后订阅一个主题；主题名就相当于密码，建议用随机长串。iOS 用上面的 Bark 更省事。',
+    fields: [
+      { key: 'server', label: '服务器', placeholder: 'https://ntfy.sh', hint: '自建填自己的地址，例如 https://ntfy.jsn1024.cn。' },
+      { key: 'topic', label: '主题', placeholder: 'workboard-xxxxxxxx', hint: '只能用字母、数字、下划线、短横线，至少 4 位。' },
+      { key: 'token', label: '访问令牌（可选）', placeholder: '自建服务器开了鉴权才需要' }
+    ]
+  },
+  {
     kind: 'EMAIL',
     title: '邮件',
     desc: '收件人在这里填；发件服务器是服务端环境变量（PUSH_SMTP_HOST 等），避免把邮箱密码存到网页里。',
@@ -373,7 +383,7 @@ function stateClass(kind) {
 }
 
 function kindLabel(kind) {
-  return ({ FEISHU: '飞书', BARK: 'Bark', EMAIL: '邮件', '-': '—' })[kind] || kind
+  return ({ FEISHU: '飞书', BARK: 'Bark', NTFY: 'ntfy', EMAIL: '邮件', '-': '—' })[kind] || kind
 }
 
 function statusLabel(status) {
