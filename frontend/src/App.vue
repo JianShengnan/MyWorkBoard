@@ -20,6 +20,7 @@
           <button class="top-text-button" type="button" :aria-label="store.theme === 'dark' ? '切换为亮色模式' : '切换为暗色模式'" :title="store.theme === 'dark' ? '切换为亮色模式' : '切换为暗色模式'" @click="store.toggleTheme()"><Sun v-if="store.theme === 'dark'" aria-hidden="true" /><Moon v-else aria-hidden="true" /></button>
           <router-link class="top-text-button notification-link" to="/tasks/inbox-notify" aria-label="任务提醒" title="任务提醒"><Bell aria-hidden="true" /><span>提醒</span><b v-if="taskInbox.unread" class="notification-badge">{{ taskInbox.unread > 99 ? '99+' : taskInbox.unread }}</b></router-link>
           <router-link class="top-text-button" to="/approvals" aria-label="审批中心" title="审批中心"><ShieldCheck aria-hidden="true" /><span>审批</span></router-link>
+          <router-link class="top-text-button" to="/desk" aria-label="通知面板" title="通知面板"><MonitorSmartphone aria-hidden="true" /><span>通知面板</span></router-link>
           <router-link class="top-text-button" to="/tools/mortgage" aria-label="工具箱" title="工具箱"><Wrench aria-hidden="true" /><span>工具箱</span></router-link>
           <router-link class="top-text-button" to="/settings" aria-label="设置" title="设置"><Setting aria-hidden="true" /><span>设置</span></router-link>
           <span class="workspace-avatar" aria-label="当前用户">{{ userInitial }}</span>
@@ -40,7 +41,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, House, Setting } from './icons.js'
-import { Bell, Moon, ShieldCheck, Sun, Timer, Wrench } from 'lucide-vue-next'
+import { Bell, MonitorSmartphone, Moon, ShieldCheck, Sun, Timer, Wrench } from 'lucide-vue-next'
 import { ledgerNavigation, navigationItemIsActive, taskNavigation, toolsNavigation, worktimeNavigation } from './config/moduleNavigation.js'
 import { useAppStore } from './stores/app'
 import { useWorktimeStore } from './stores/worktime.js'

@@ -7,6 +7,7 @@ const routes = [
   { path: '/approvals/:id?', name: 'agent-approvals', component: () => import('../views/AgentApprovalsView.vue'), meta: { title: '审批中心' } },
   { path: '/mcp/actions/confirm', name: 'mcp-action-confirm', component: () => import('../views/McpActionConfirmationView.vue'), meta: { title: '外部操作确认' } },
   { path: '/oauth/consent', name: 'mcp-oauth-consent', component: () => import('../views/McpOAuthConsentView.vue'), meta: { title: '授权外部应用' } },
+  { path: '/desk', name: 'desk-notify', component: () => import('../views/DeskNotifyView.vue'), meta: { title: '通知面板' } },
   { path: '/punch', name: 'punch', component: () => import('../views/PunchView.vue'), meta: { title: '打卡' } },
   { path: '/records', name: 'records', component: () => import('../views/RecordsView.vue'), meta: { title: '记录' } },
   { path: '/stats', name: 'stats', component: () => import('../views/StatsView.vue'), meta: { title: '统计' } },
