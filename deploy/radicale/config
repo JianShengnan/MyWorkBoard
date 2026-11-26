@@ -1,0 +1,25 @@
+# Radicale 3 配置：CalDAV 服务端。
+# 认证用 htpasswd 明文（镜像未带 passlib，bcrypt/sha512_crypt 不可用），
+# 因此账号文件只放在服务器（~/salary-tracker/radicale/users），不进仓库；
+# 传输全程走 HTTPS，密码是 20 位随机串。
+[server]
+hosts = 0.0.0.0:5232
+max_connections = 20
+timeout = 30
+
+[auth]
+type = htpasswd
+htpasswd_filename = /config/users
+htpasswd_encryption = plain
+delay = 1
+
+[storage]
+filesystem_folder = /data/collections
+
+# authenticated：单用户场景，根路径也要能 PROPFIND（客户端发现 principal 需要），
+# owner_only 会让 /dav/ 返回 403，iOS 加账户直接失败。
+[rights]
+type = authenticated
+
+[logging]
+level = info

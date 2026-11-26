@@ -562,3 +562,20 @@ sudo docker compose --env-file .env -f docker-compose.prod.yml up -d --no-deps b
   当前 SAN：`jsn1024.cn, ntfy.jsn1024.cn`）。nginx 里是独立的 443 server 块，反代到 `salary-ntfy:80`。
 - 发布用 JSON：`POST /`，body 带 `topic`，`Content-Type: application/json`。
   `POST /{topic}` 只吃纯文本，塞 JSON 会被原样当正文。
+
+## CalDAV（Radicale，2026-11-26）
+
+- 容器 `salary-radicale`（`tomsquest/docker-radicale:3.3.0.0`），仅 `salary-net` 内监听 5232。
+  配置挂载 `./radicale/config`、账号 `./radicale/users`（**含密码，不进仓库**）、数据卷 `radicale-data`。
+- 客户端地址 `https://jsn1024.cn/dav/`，账号 `workboard`。集合路径 `/workboard/workboard/`。
+- nginx：`/dav/` 保留前缀由 `X-Script-Name` 告知，但 Radicale **不 strip PATH_INFO**，
+  必须 `rewrite ^/dav/(.*)$ /$1 break`；且 `set $radicale` 要写在 rewrite **之前**，
+  否则 break 终止 rewrite 阶段、变量为空 → `500 invalid URL prefix`。
+- 加 `/.well-known/caldav` 301 到 `/dav/`，iOS 加账户时靠它发现。
+- `[rights] type = authenticated`（不是 owner_only）：单用户场景根路径也要 PROPFIND 出
+  `current-user-principal`，owner_only 会 403 让 iOS 直接失败。
+- 镜像未带 passlib/bcrypt/htpasswd，`sha512_crypt`/`bcrypt` 都不可用，只能用 `plain`
+  （20 位随机密码 + 全程 HTTPS + 文件 644）。
+- 同步：任务 -7~+60 天、倒数日 -7~+365 天，一个实体一个 `.ics`（UID 稳定），
+  指纹没变不 PUT。**iCal 的 DTEND 是不含的次日**（与飞书闭区间相反），
+  单日全天事件要写 `DTSTART=D`、`DTEND=D+1`。
