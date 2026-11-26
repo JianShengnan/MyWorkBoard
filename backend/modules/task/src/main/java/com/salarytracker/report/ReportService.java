@@ -313,19 +313,31 @@ public class ReportService {
         }
     }
 
+    /**
+     * 专注按「任务/习惯」聚合，而不是逐次流水：一天里同一个任务专注三四次很常见，
+     * 逐条列出来只会把列表刷满、看不出时间真正花在哪。
+     */
     private List<Item> focusItems(long userId, LocalDate start, LocalDate end) {
         try {
             return jdbc.query(
-                    "SELECT COALESCE(t.title, h.name, '专注') title, f.actual_minutes, DATE(f.started_at) " +
+                    "SELECT COALESCE(t.title, h.name, '未关联任务') title, SUM(f.actual_minutes) mins, " +
+                            "COUNT(*) cnt, MAX(DATE(f.started_at)) last_day " +
                             "FROM focus_session f LEFT JOIN task t ON t.id=f.task_id LEFT JOIN habit h ON h.id=f.habit_id " +
                             "WHERE f.user_id=? AND f.started_at>=? AND f.started_at<? AND f.actual_minutes>0 " +
-                            "ORDER BY f.started_at DESC LIMIT " + ITEM_LIMIT,
+                            "GROUP BY COALESCE(t.title, h.name, '未关联任务') ORDER BY mins DESC LIMIT " + ITEM_LIMIT,
                     (rs, i) -> new Item(rs.getString(1),
-                            rs.getInt(2) + " 分钟 · " + rs.getDate(3), null, "/tasks/focus"),
+                            focusDuration(rs.getInt(2)) + " · " + rs.getInt(3) + " 次",
+                            rs.getDate(4).toString(), "/tasks/focus"),
                     userId, ts(start), ts(end));
         } catch (RuntimeException exception) {
             return List.of();
         }
+    }
+
+    private static String focusDuration(int minutes) {
+        if (minutes < 60) return minutes + " 分钟";
+        double hours = Math.round(minutes / 6.0) / 10.0;
+        return hours + " 小时";
     }
 
     /** 倒数日不是「统计量」，而是清单：本期内到期的排在前面，再补未来 30 天的。 */
