@@ -579,3 +579,16 @@ sudo docker compose --env-file .env -f docker-compose.prod.yml up -d --no-deps b
 - 同步：任务 -7~+60 天、倒数日 -7~+365 天，一个实体一个 `.ics`（UID 稳定），
   指纹没变不 PUT。**iCal 的 DTEND 是不含的次日**（与飞书闭区间相反），
   单日全天事件要写 `DTSTART=D`、`DTEND=D+1`。
+
+### CalDAV 双向同步（2026-11-26）
+
+- 回写范围：**标题与日期**（DTSTART/DTEND）。完成状态、优先级、清单归属仍以网站为准。
+- 流程：先 pull 后 push。pull 用 `PROPFIND Depth:1` 取 `getetag`，只对 etag 变化的事件回读 ICS；
+  解析后逐字段比对，确实不同才 `TaskService.update`（走 oplog，前端能立刻收到增量）。
+- **etag 是幂等键**：PUT 成功后记录响应头 etag；回写成功后也记录远端 etag。
+  失败时**不更新** etag，否则该事件会被永久跳过。
+- `TaskService.update` 要求 `If-Match`（即当前 revision），传 null 会直接抛「If-Match 必填」。
+- 语义提醒：iCal 的 DTEND 是**不含的次日**，读回时减一天；只改 DTSTART 而 DTEND 不变时，
+  due 不会跟着移动，这是对的。
+- 账号密码改动必须同步两处：`~/salary-tracker/radicale/users` 与 `.env` 的 `CALDAV_PASSWORD`，
+  否则同步会全线 401（表现为「上次同步失败 N 条」）。
