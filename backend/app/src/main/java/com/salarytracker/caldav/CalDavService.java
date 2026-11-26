@@ -154,6 +154,7 @@ public class CalDavService {
             String collection = collection(userId);
             List<Desired> desired = new ArrayList<>(taskEvents(userId, zone));
             desired.addAll(countdownEvents(userId, zone));
+            desired.addAll(dayEvents(userId, zone));
 
             Map<String, Row> existing = new LinkedHashMap<>();
             jdbc.query("SELECT event_uid,kind,fingerprint,etag FROM caldav_event WHERE user_id=?",
@@ -311,6 +312,131 @@ public class CalDavService {
                 java.sql.Date.valueOf(today.plusDays(COUNTDOWN_FUTURE_DAYS)));
     }
 
+
+    /**
+     * 每日记录：一天一条全天日程，把当天的工时、专注、流水都写进 DESCRIPTION。
+     *
+     * <p>为什么合成一条而不是各发一条：一天里流水可能有十几笔，逐条铺到日历上会把时间轴淹掉；
+     * 合成「日报」之后，日历上每天只有一个条目，点开就是当天的全部明细。</p>
+     *
+     * <p>只导出有数据的日子，且仅回看 14 天 + 明天，避免一次性灌几百条空日程。</p>
+     */
+    List<Desired> dayEvents(long userId, ZoneId zone) {
+        LocalDate today = LocalDate.now(zone);
+        LocalDate from = today.minusDays(14);
+        LocalDate to = today.plusDays(1);
+
+        Map<String, List<String>> work = new LinkedHashMap<>();
+        Map<String, List<String>> focus = new LinkedHashMap<>();
+        Map<String, List<String>> ledger = new LinkedHashMap<>();
+        Map<String, Double> ledgerTotal = new LinkedHashMap<>();
+
+        try {
+            jdbc.query("SELECT date,start_time,end_time,lunch_min,rest_min,overtime_min FROM work_record " +
+                            "WHERE user_id=? AND deleted=FALSE AND date>=? AND date<? ORDER BY date",
+                    rs -> {
+                        LocalDate day = rs.getDate("date").toLocalDate();
+                        LocalTime start = rs.getTime("start_time") == null ? null : rs.getTime("start_time").toLocalTime();
+                        LocalTime end = rs.getTime("end_time") == null ? null : rs.getTime("end_time").toLocalTime();
+                        int net = rs.getInt("lunch_min") + rs.getInt("rest_min");
+                        String range = (start == null ? "--:--" : start.toString()) + "–"
+                                + (end == null ? "--:--" : end.toString());
+                        int minutes = (start != null && end != null)
+                                ? (int) java.time.Duration.between(start, end).toMinutes() - net : 0;
+                        String text = range + " · 净 " + hoursText(minutes);
+                        int overtime = rs.getInt("overtime_min");
+                        if (overtime > 0) text += " · 加班 " + overtime + " 分钟";
+                        work.computeIfAbsent(day.toString(), key -> new ArrayList<>()).add(text);
+                        return null;
+                    }, userId, java.sql.Date.valueOf(from), java.sql.Date.valueOf(to));
+        } catch (RuntimeException ignored) {
+        }
+
+        try {
+            jdbc.query("SELECT DATE(f.started_at) d, COALESCE(t.title,h.name,'专注') title, SUM(f.actual_minutes) m " +
+                            "FROM focus_session f LEFT JOIN task t ON t.id=f.task_id LEFT JOIN habit h ON h.id=f.habit_id " +
+                            "WHERE f.user_id=? AND f.started_at>=? AND f.started_at<? AND f.actual_minutes>0 " +
+                            "GROUP BY DATE(f.started_at), title ORDER BY m DESC",
+                    rs -> {
+                        String day = rs.getDate(1).toString();
+                        focus.computeIfAbsent(day, key -> new ArrayList<>())
+                                .add(rs.getString(2) + " " + hoursText(rs.getInt(3)));
+                        return null;
+                    }, userId, Timestamp.valueOf(from.atStartOfDay()), Timestamp.valueOf(to.atStartOfDay()));
+        } catch (RuntimeException ignored) {
+        }
+
+        try {
+            jdbc.query("SELECT x.occurred_on d, COALESCE(c.name,'未分类') name, x.amount, x.note " +
+                            "FROM ledger_transaction x LEFT JOIN ledger_category c ON c.id=x.category_id " +
+                            "WHERE x.user_id=? AND x.kind='EXPENSE' AND x.occurred_on>=? AND x.occurred_on<? " +
+                            "ORDER BY x.occurred_on, x.amount DESC",
+                    rs -> {
+                        String day = rs.getDate(1).toString();
+                        String note = rs.getString(4);
+                        String line = rs.getString(2) + " ¥" + rs.getBigDecimal(3).stripTrailingZeros().toPlainString()
+                                + (note == null || note.isBlank() ? "" : " · " + note.trim());
+                        List<String> list = ledger.computeIfAbsent(day, key -> new ArrayList<>());
+                        // 单日控制在 10 笔以内，否则描述会长到客户端折叠
+                        if (list.size() < 10) list.add(line);
+                        ledgerTotal.merge(day, rs.getBigDecimal(3).doubleValue(), Double::sum);
+                        return null;
+                    }, userId, java.sql.Date.valueOf(from), java.sql.Date.valueOf(to));
+        } catch (RuntimeException ignored) {
+        }
+
+        java.util.LinkedHashSet<String> days = new java.util.LinkedHashSet<>();
+        days.addAll(work.keySet());
+        days.addAll(focus.keySet());
+        days.addAll(ledger.keySet());
+
+        List<Desired> events = new ArrayList<>();
+        for (String day : days) {
+            LocalDate date = LocalDate.parse(day);
+            StringBuilder body = new StringBuilder();
+            List<String> workLines = work.get(day);
+            if (workLines != null && !workLines.isEmpty()) {
+                body.append("工时\n");
+                workLines.forEach(line -> body.append("· ").append(line).append('\n'));
+            }
+            List<String> focusLines = focus.get(day);
+            if (focusLines != null && !focusLines.isEmpty()) {
+                if (body.length() > 0) body.append('\n');
+                body.append("专注\n");
+                focusLines.forEach(line -> body.append("· ").append(line).append('\n'));
+            }
+            List<String> ledgerLines = ledger.get(day);
+            if (ledgerLines != null && !ledgerLines.isEmpty()) {
+                if (body.length() > 0) body.append('\n');
+                body.append("流水\n");
+                ledgerLines.forEach(line -> body.append("· ").append(line).append('\n'));
+                Double total = ledgerTotal.get(day);
+                if (total != null) {
+                    body.append("合计支出 ¥")
+                            .append(java.math.BigDecimal.valueOf(total).setScale(2, java.math.RoundingMode.HALF_UP)
+                                    .stripTrailingZeros().toPlainString())
+                            .append('\n');
+                }
+            }
+            String raw = body.toString().trim();
+            String text = raw.length() > 2000 ? raw.substring(0, 2000) : raw;
+            String uid = "day-" + day + "@workboard";
+            events.add(new Desired(uid, "DAY",
+                    allDayEvent(uid, dayLabel(date), text, date, date, 0),
+                    sha256(text)));
+        }
+        return events;
+    }
+
+    private static String dayLabel(LocalDate date) {
+        return String.format("%02d-%02d 记录", date.getMonthValue(), date.getDayOfMonth());
+    }
+
+    private static String hoursText(int minutes) {
+        if (minutes <= 0) return "0h";
+        return (Math.round(minutes / 6.0) / 10.0) + "h";
+    }
+
     private String note(String listName, String priority, int total, int done, String description) {
         StringBuilder note = new StringBuilder("清单：").append(listName == null ? "收集箱" : listName);
         if (priority != null && !"NONE".equals(priority)) {
@@ -403,7 +529,7 @@ public class CalDavService {
         int written = 0;
         for (Map.Entry<String, String> entry : etags.entrySet()) {
             String uid = uidOf(entry.getKey());
-            if (uid == null || uid.startsWith("countdown-")) continue;
+            if (uid == null || uid.startsWith("countdown-") || uid.startsWith("day-")) continue;
             String etag = entry.getValue();
             List<Row> rows = jdbc.query("SELECT event_uid,kind,fingerprint,etag FROM caldav_event " +
                             "WHERE user_id=? AND event_uid=?",
