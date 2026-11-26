@@ -557,7 +557,8 @@ sudo docker compose --env-file .env -f docker-compose.prod.yml up -d --no-deps b
 
 - 容器 `salary-ntfy`（`binwiederhier/ntfy`），仅在 `salary-net` 内监听 80，对外由 nginx 反代。
 - **ntfy 不支持子路径部署**（`base-url` 带路径会直接拒绝启动），必须用独立子域名：
-  `NTFY_BASE_URL=https://ntfy.jsn1024.cn`，DNS 需加 A 记录指向本机，并把该域名并入证书
-  （`certbot certonly --webroot -w /var/www/certbot -d jsn1024.cn -d ntfy.jsn1024.cn --expand`）。
+  `NTFY_BASE_URL=https://ntfy.jsn1024.cn`，已加 DNS A 记录（`ntfy` → 212.64.29.21），
+  并把该域名并入同一张证书（`certbot certonly --webroot -w /var/www/certbot -d jsn1024.cn -d ntfy.jsn1024.cn --expand`，
+  当前 SAN：`jsn1024.cn, ntfy.jsn1024.cn`）。nginx 里是独立的 443 server 块，反代到 `salary-ntfy:80`。
 - 发布用 JSON：`POST /`，body 带 `topic`，`Content-Type: application/json`。
   `POST /{topic}` 只吃纯文本，塞 JSON 会被原样当正文。
