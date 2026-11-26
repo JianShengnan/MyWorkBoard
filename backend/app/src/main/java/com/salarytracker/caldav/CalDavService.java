@@ -331,57 +331,59 @@ public class CalDavService {
         Map<String, List<String>> ledger = new LinkedHashMap<>();
         Map<String, Double> ledgerTotal = new LinkedHashMap<>();
 
+        // 用 queryForList 而不是带 lambda 的 query：后者的重载在 RowMapper / RowCallbackHandler
+        // 之间容易选错，表面上编译通过、副作用却不执行。
         try {
-            jdbc.query("SELECT date,start_time,end_time,lunch_min,rest_min,overtime_min FROM work_record " +
-                            "WHERE user_id=? AND deleted=FALSE AND date>=? AND date<? ORDER BY date",
-                    rs -> {
-                        LocalDate day = rs.getDate("date").toLocalDate();
-                        LocalTime start = rs.getTime("start_time") == null ? null : rs.getTime("start_time").toLocalTime();
-                        LocalTime end = rs.getTime("end_time") == null ? null : rs.getTime("end_time").toLocalTime();
-                        int net = rs.getInt("lunch_min") + rs.getInt("rest_min");
-                        String range = (start == null ? "--:--" : start.toString()) + "–"
-                                + (end == null ? "--:--" : end.toString());
-                        int minutes = (start != null && end != null)
-                                ? (int) java.time.Duration.between(start, end).toMinutes() - net : 0;
-                        String text = range + " · 净 " + hoursText(minutes);
-                        int overtime = rs.getInt("overtime_min");
-                        if (overtime > 0) text += " · 加班 " + overtime + " 分钟";
-                        work.computeIfAbsent(day.toString(), key -> new ArrayList<>()).add(text);
-                        return null;
-                    }, userId, java.sql.Date.valueOf(from), java.sql.Date.valueOf(to));
+            for (Map<String, Object> row : jdbc.queryForList(
+                    "SELECT `date`,start_time,end_time,lunch_min,rest_min,overtime_min FROM work_record " +
+                            "WHERE user_id=? AND deleted=FALSE AND `date`>=? AND `date`<? ORDER BY `date`",
+                    userId, java.sql.Date.valueOf(from), java.sql.Date.valueOf(to))) {
+                LocalDate day = ((java.sql.Date) row.get("date")).toLocalDate();
+                LocalTime start = row.get("start_time") == null ? null : ((java.sql.Time) row.get("start_time")).toLocalTime();
+                LocalTime end = row.get("end_time") == null ? null : ((java.sql.Time) row.get("end_time")).toLocalTime();
+                int net = number(row.get("lunch_min")) + number(row.get("rest_min"));
+                String range = (start == null ? "--:--" : start.toString()) + "–"
+                        + (end == null ? "--:--" : end.toString());
+                int minutes = (start != null && end != null)
+                        ? (int) java.time.Duration.between(start, end).toMinutes() - net : 0;
+                String text = range + " · 净 " + hoursText(minutes);
+                int overtime = number(row.get("overtime_min"));
+                if (overtime > 0) text += " · 加班 " + overtime + " 分钟";
+                work.computeIfAbsent(day.toString(), key -> new ArrayList<>()).add(text);
+            }
         } catch (RuntimeException ignored) {
         }
 
         try {
-            jdbc.query("SELECT DATE(f.started_at) d, COALESCE(t.title,h.name,'专注') title, SUM(f.actual_minutes) m " +
+            for (Map<String, Object> row : jdbc.queryForList(
+                    "SELECT DATE(f.started_at) d, COALESCE(t.title,h.name,'专注') title, SUM(f.actual_minutes) m " +
                             "FROM focus_session f LEFT JOIN task t ON t.id=f.task_id LEFT JOIN habit h ON h.id=f.habit_id " +
                             "WHERE f.user_id=? AND f.started_at>=? AND f.started_at<? AND f.actual_minutes>0 " +
-                            "GROUP BY DATE(f.started_at), title ORDER BY m DESC",
-                    rs -> {
-                        String day = rs.getDate(1).toString();
-                        focus.computeIfAbsent(day, key -> new ArrayList<>())
-                                .add(rs.getString(2) + " " + hoursText(rs.getInt(3)));
-                        return null;
-                    }, userId, Timestamp.valueOf(from.atStartOfDay()), Timestamp.valueOf(to.atStartOfDay()));
+                            "GROUP BY DATE(f.started_at), COALESCE(t.title,h.name,'专注') ORDER BY m DESC",
+                    userId, Timestamp.valueOf(from.atStartOfDay()), Timestamp.valueOf(to.atStartOfDay()))) {
+                String day = String.valueOf(row.get("d"));
+                focus.computeIfAbsent(day, key -> new ArrayList<>())
+                        .add(row.get("title") + " " + hoursText(number(row.get("m"))));
+            }
         } catch (RuntimeException ignored) {
         }
 
         try {
-            jdbc.query("SELECT x.occurred_on d, COALESCE(c.name,'未分类') name, x.amount, x.note " +
+            for (Map<String, Object> row : jdbc.queryForList(
+                    "SELECT x.occurred_on d, COALESCE(c.name,'未分类') name, x.amount, x.note " +
                             "FROM ledger_transaction x LEFT JOIN ledger_category c ON c.id=x.category_id " +
                             "WHERE x.user_id=? AND x.kind='EXPENSE' AND x.occurred_on>=? AND x.occurred_on<? " +
                             "ORDER BY x.occurred_on, x.amount DESC",
-                    rs -> {
-                        String day = rs.getDate(1).toString();
-                        String note = rs.getString(4);
-                        String line = rs.getString(2) + " ¥" + rs.getBigDecimal(3).stripTrailingZeros().toPlainString()
-                                + (note == null || note.isBlank() ? "" : " · " + note.trim());
-                        List<String> list = ledger.computeIfAbsent(day, key -> new ArrayList<>());
-                        // 单日控制在 10 笔以内，否则描述会长到客户端折叠
-                        if (list.size() < 10) list.add(line);
-                        ledgerTotal.merge(day, rs.getBigDecimal(3).doubleValue(), Double::sum);
-                        return null;
-                    }, userId, java.sql.Date.valueOf(from), java.sql.Date.valueOf(to));
+                    userId, java.sql.Date.valueOf(from), java.sql.Date.valueOf(to))) {
+                String day = String.valueOf(row.get("d"));
+                double amount = row.get("amount") == null ? 0 : ((java.math.BigDecimal) row.get("amount")).doubleValue();
+                String note = row.get("note") == null ? null : String.valueOf(row.get("note")).trim();
+                List<String> list = ledger.computeIfAbsent(day, key -> new ArrayList<>());
+                if (list.size() < 10) {
+                    list.add(row.get("name") + " ¥" + fmt(amount) + (note == null || note.isBlank() ? "" : " · " + note));
+                }
+                ledgerTotal.merge(day, amount, Double::sum);
+            }
         } catch (RuntimeException ignored) {
         }
 
@@ -411,21 +413,28 @@ public class CalDavService {
                 body.append("流水\n");
                 ledgerLines.forEach(line -> body.append("· ").append(line).append('\n'));
                 Double total = ledgerTotal.get(day);
-                if (total != null) {
-                    body.append("合计支出 ¥")
-                            .append(java.math.BigDecimal.valueOf(total).setScale(2, java.math.RoundingMode.HALF_UP)
-                                    .stripTrailingZeros().toPlainString())
-                            .append('\n');
-                }
+                if (total != null) body.append("合计支出 ¥").append(fmt(total)).append('\n');
             }
             String raw = body.toString().trim();
+            if (raw.isEmpty()) continue;
             String text = raw.length() > 2000 ? raw.substring(0, 2000) : raw;
             String uid = "day-" + day + "@workboard";
             events.add(new Desired(uid, "DAY",
                     allDayEvent(uid, dayLabel(date), text, date, date, 0),
                     sha256(text)));
         }
+        log.info("CalDAV 每日记录 {} 条（工时 {} 天 / 专注 {} 天 / 流水 {} 天）",
+                events.size(), work.size(), focus.size(), ledger.size());
         return events;
+    }
+
+    private static int number(Object value) {
+        return value instanceof Number n ? n.intValue() : 0;
+    }
+
+    private static String fmt(double value) {
+        return java.math.BigDecimal.valueOf(value).setScale(2, java.math.RoundingMode.HALF_UP)
+                .stripTrailingZeros().toPlainString();
     }
 
     private static String dayLabel(LocalDate date) {
