@@ -134,6 +134,39 @@
         </div>
       </section>
 
+      <section class="block">
+        <div class="section-head">
+          <h2>专注</h2>
+          <span class="section-note">只统计已完成的专注，单位为分钟</span>
+        </div>
+        <div class="chart-row">
+          <div ref="focusChart" class="chart"></div>
+          <ul class="item-list inline">
+            <li v-for="(item, index) in report.focusItems.slice(0, 6)" :key="index" @click="go(item.link)">
+              <span class="item-title">{{ item.title }}</span>
+              <span class="item-meta">{{ item.meta }}</span>
+            </li>
+            <li v-if="!report.focusItems.length" class="hint">本期没有专注记录</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="block">
+        <div class="section-head">
+          <h2>倒数日</h2>
+          <span class="section-note">本期内到期与未来 30 天内即将到来</span>
+        </div>
+        <ul v-if="report.countdownItems.length" class="item-list inline">
+          <li v-for="(item, index) in report.countdownItems" :key="index" @click="go(item.link)">
+            <span class="item-title">{{ item.title }}</span>
+            <span class="item-note">{{ item.note }}</span>
+            <span class="item-meta">{{ item.meta }}</span>
+          </li>
+        </ul>
+        <p v-else class="hint">没有临近的倒数日</p>
+        <router-link class="more-link no-print" to="/tasks/countdowns">去倒数日 →</router-link>
+      </section>
+
       <section v-if="external && external.length" class="block external">
         <div class="section-head">
           <h2>生活与其他</h2>
@@ -177,8 +210,8 @@ const summaryBusy = ref(false)
 const loading = ref(false)
 const error = ref('')
 const charts = []
-const el = { task: ref(null), expense: ref(null), work: ref(null), habit: ref(null) }
-const taskChart = el.task, expenseChart = el.expense, workChart = el.work, habitChart = el.habit
+const el = { task: ref(null), expense: ref(null), work: ref(null), habit: ref(null), focus: ref(null) }
+const taskChart = el.task, expenseChart = el.expense, workChart = el.work, habitChart = el.habit, focusChart = el.focus
 
 const PALETTE = ['#1D9E75', '#378ADD', '#BA7517', '#D4537E', '#7F77DD', '#E24B4A', '#639922', '#888780']
 
@@ -216,7 +249,8 @@ const kpis = computed(() => {
     { label: '收入', value: `¥${money(kpi.income)}`, note: `结余 ¥${money(kpi.income - kpi.expense)}`, delta: null },
     { label: '净工时', value: `${kpi.netHours}h`, note: `出勤 ${kpi.workDays} 天`, delta: d(kpi.netHours, prev?.netHours) },
     { label: '加班', value: `${Math.round(kpi.overtimeMinutes / 6) / 10}h`, note: '超出 7.5h 基准', delta: null },
-    { label: '习惯', value: `${kpi.habitRate}%`, note: `完成 ${kpi.habitDone} · 缺卡 ${kpi.habitMiss}`, delta: d(kpi.habitRate, prev?.habitRate) }
+    { label: '习惯', value: `${kpi.habitRate}%`, note: `完成 ${kpi.habitDone} · 缺卡 ${kpi.habitMiss}`, delta: d(kpi.habitRate, prev?.habitRate) },
+    { label: '专注', value: `${kpi.focusHours}h`, note: `${kpi.focusSessions} 次`, delta: d(kpi.focusHours, prev?.focusHours) }
   ]
 })
 
@@ -330,6 +364,15 @@ function renderCharts() {
             { value: done, name: '完成', itemStyle: { color: PALETTE[0] } },
             { value: miss, name: '缺卡', itemStyle: { color: PALETTE[5] } }
           ]
+    }]
+  })
+
+  mount(focusChart.value, {
+    ...baseOption(),
+    xAxis: { ...baseOption().xAxis, data: labels },
+    series: [{
+      type: 'bar', name: '专注（分钟）', data: seriesFor(report.value.focusDaily, days),
+      itemStyle: { color: '#7F77DD', borderRadius: [4, 4, 0, 0] }, barMaxWidth: 26
     }]
   })
 }
@@ -448,6 +491,7 @@ onBeforeUnmount(() => charts.splice(0).forEach(chart => chart.dispose()))
 .bar-track i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
 .bar-value { font-variant-numeric: tabular-nums; }
 
+.item-list.inline { margin-top: 0; border-top: 0; }
 .item-list { display: flex; flex-direction: column; margin: 12px 0 0; padding: 0; list-style: none; border-top: 1px dashed var(--line); }
 .item-list li { display: flex; align-items: baseline; gap: 10px; padding: 8px 2px; border-bottom: 1px dashed var(--line); font-size: 12.5px; cursor: pointer; }
 .item-list li:hover { background: rgba(136, 135, 128, 0.06); }

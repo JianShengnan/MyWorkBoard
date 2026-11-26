@@ -91,6 +91,8 @@ public class ReportSummaryService {
                 .append(" 小时，加班 ").append(kpi.overtimeMinutes()).append(" 分钟");
         data.append("\n习惯：完成 ").append(kpi.habitDone()).append(" 次，缺卡 ").append(kpi.habitMiss())
                 .append(" 次，完成率 ").append(kpi.habitRate()).append("%");
+        data.append("\n专注：").append(kpi.focusSessions()).append(" 次，共 ")
+                .append(kpi.focusHours()).append(" 小时");
 
         ReportService.Kpi prev = report.previous();
         data.append("\n上一周期对比：完成任务 ").append(prev.completed()).append("，支出 ")

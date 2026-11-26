@@ -50,7 +50,8 @@ public class ReportService {
     public record Kpi(int completed, int created, int overdue, int open,
                       double expense, double income, int expenseCount,
                       double netHours, int workDays, int overtimeMinutes,
-                      int habitDone, int habitMiss, double habitRate) {
+                      int habitDone, int habitMiss, double habitRate,
+                      int focusSessions, double focusHours) {
     }
 
     public record Bucket(String label, double value, int count) {
@@ -70,6 +71,8 @@ public class ReportService {
                          List<Bucket> expenseCategories, List<DayPoint> expenseDaily, List<Item> expenseItems,
                          List<DayPoint> workDaily, List<Item> workItems,
                          List<Bucket> habitStats, List<Item> habitItems,
+                         List<DayPoint> focusDaily, List<Item> focusItems,
+                         List<Item> countdownItems,
                          JsonNode external) {
     }
 
@@ -203,6 +206,9 @@ public class ReportService {
                 taskDaily(userId, current.start(), effectiveEnd),
                 taskItems, expenseCategories, expenseDaily, expenseItems,
                 workDaily, workItems, habitStats, habitItems,
+                focusDaily(userId, current.start(), effectiveEnd),
+                focusItems(userId, current.start(), effectiveEnd),
+                countdownItems(userId, current.start(), current.endExclusive()),
                 external(userId, type, current.start()));
     }
 
@@ -272,12 +278,77 @@ public class ReportService {
         } catch (RuntimeException ignored) {
         }
 
+        int focusSessions = 0;
+        double focusMinutes = 0;
+        try {
+            Map<String, Object> focus = jdbc.queryForMap(
+                    "SELECT COUNT(*) c, COALESCE(SUM(actual_minutes),0) m FROM focus_session " +
+                            "WHERE user_id=? AND started_at>=? AND started_at<? AND actual_minutes>0",
+                    userId, ts(start), ts(end));
+            focusSessions = number(focus.get("c"));
+            focusMinutes = decimal(focus.get("m"));
+        } catch (RuntimeException ignored) {
+            // 专注表缺失时保持 0
+        }
+
         int habitTotal = habitDone + habitMiss;
         return new Kpi(number(taskCounts.get("completed")), number(taskCounts.get("created")),
                 number(taskCounts.get("overdue")), number(taskCounts.get("open_cnt")),
                 round(expense), round(income), expenseCount,
                 round(netMinutes / 60.0), workDays, overtime,
-                habitDone, habitMiss, habitTotal == 0 ? 0 : round(habitDone * 100.0 / habitTotal));
+                habitDone, habitMiss, habitTotal == 0 ? 0 : round(habitDone * 100.0 / habitTotal),
+                focusSessions, round(focusMinutes / 60.0));
+    }
+
+    private List<DayPoint> focusDaily(long userId, LocalDate start, LocalDate end) {
+        try {
+            return jdbc.query(
+                    "SELECT DATE(started_at) d, SUM(actual_minutes) m FROM focus_session " +
+                            "WHERE user_id=? AND started_at>=? AND started_at<? AND actual_minutes>0 " +
+                            "GROUP BY DATE(started_at) ORDER BY d",
+                    (rs, i) -> new DayPoint(rs.getDate(1).toString(), rs.getInt(2)),
+                    userId, ts(start), ts(end));
+        } catch (RuntimeException exception) {
+            return List.of();
+        }
+    }
+
+    private List<Item> focusItems(long userId, LocalDate start, LocalDate end) {
+        try {
+            return jdbc.query(
+                    "SELECT COALESCE(t.title, h.name, '专注') title, f.actual_minutes, DATE(f.started_at) " +
+                            "FROM focus_session f LEFT JOIN task t ON t.id=f.task_id LEFT JOIN habit h ON h.id=f.habit_id " +
+                            "WHERE f.user_id=? AND f.started_at>=? AND f.started_at<? AND f.actual_minutes>0 " +
+                            "ORDER BY f.started_at DESC LIMIT " + ITEM_LIMIT,
+                    (rs, i) -> new Item(rs.getString(1),
+                            rs.getInt(2) + " 分钟 · " + rs.getDate(3), null, "/tasks/focus"),
+                    userId, ts(start), ts(end));
+        } catch (RuntimeException exception) {
+            return List.of();
+        }
+    }
+
+    /** 倒数日不是「统计量」，而是清单：本期内到期的排在前面，再补未来 30 天的。 */
+    private List<Item> countdownItems(long userId, LocalDate start, LocalDate endExclusive) {
+        try {
+            LocalDate today = LocalDate.now();
+            return jdbc.query(
+                    "SELECT c.title, c.target_date, COALESCE(g.name,'') grp FROM countdown c " +
+                            "LEFT JOIN countdown_group g ON g.public_id=c.group_id AND g.deleted_at IS NULL " +
+                            "WHERE c.user_id=? AND c.deleted_at IS NULL AND c.archived=0 " +
+                            "AND c.target_date>=? AND c.target_date<? ORDER BY c.target_date LIMIT 10",
+                    (rs, i) -> {
+                        LocalDate target = rs.getDate(2).toLocalDate();
+                        long days = java.time.temporal.ChronoUnit.DAYS.between(today, target);
+                        String when = days == 0 ? "就是今天" : (days > 0 ? "还有 " + days + " 天" : "已过 " + (-days) + " 天");
+                        String grp = rs.getString(3);
+                        return new Item(rs.getString(1), target + " · " + when,
+                                grp == null || grp.isBlank() ? null : grp, "/tasks/countdowns");
+                    },
+                    userId, date(start), date(endExclusive.plusDays(30)));
+        } catch (RuntimeException exception) {
+            return List.of();
+        }
     }
 
     private List<Bucket> taskLists(long userId, LocalDate start, LocalDate end) {
