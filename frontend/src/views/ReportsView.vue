@@ -274,6 +274,15 @@ function exportPdf() {
   window.print()
 }
 
+// 注意：不能用 toISOString().slice(0,10)。本地 00:00 在东八区是 UTC 前一天 16:00，
+// 直接取前 10 位会把周一的柱子画到周日，整条 x 轴左移一天。
+function localDate(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function daysBetween(start, end) {
   const base = new Date(start + 'T00:00:00')
   const last = new Date(end + 'T00:00:00')
@@ -281,7 +290,7 @@ function daysBetween(start, end) {
   return Array.from({ length: Math.max(1, total) }, (_, index) => {
     const day = new Date(base)
     day.setDate(base.getDate() + index)
-    return day.toISOString().slice(0, 10)
+    return localDate(day)
   })
 }
 
@@ -381,7 +390,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const iso = anchor.value.toISOString().slice(0, 10)
+    const iso = localDate(anchor.value)
     const payload = await apiReport(period.value, iso)
     report.value = payload?.report || payload
     summary.content = payload?.summary?.content || ''
@@ -401,7 +410,7 @@ async function fetchSummary(force) {
   if (summaryBusy.value) return
   summaryBusy.value = true
   try {
-    const iso = report.value?.start || anchor.value.toISOString().slice(0, 10)
+    const iso = report.value?.start || localDate(anchor.value)
     const result = await apiReportSummary(period.value, iso, force)
     summary.content = result?.content || ''
     summary.cached = Boolean(result?.cached)
